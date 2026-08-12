@@ -1,0 +1,665 @@
+/**
+ * Font Manager Styles
+ * Single-column layout optimized for Design Studio drawer
+ */
+
+.font-manager {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: 100%;
+  min-width: 0;
+}
+
+.font-manager-header {
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.font-manager-title {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+  margin: 0 0 var(--space-1);
+}
+
+.font-manager-subtitle {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* ===== All controls stack vertically ===== */
+.font-manager-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* ===== Font Family ===== */
+.font-manager-font-family {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.font-manager-font-family label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-primary);
+}
+
+.font-family-selector {
+  position: relative;
+  width: 100%;
+}
+
+.font-family-selected {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  min-height: 36px;
+  width: 100%;
+}
+
+.font-family-selected:hover {
+  border-color: var(--border-secondary);
+}
+
+.font-family-selected-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-sm);
+  flex: 1;
+  min-width: 0;
+}
+
+.font-family-dropdown {
+  position: relative;
+  width: 100%;
+}
+
+.font-family-search {
+  padding: var(--space-2);
+  position: sticky;
+  top: 0;
+  background: var(--bg-elevated);
+  z-index: 1;
+}
+
+.font-family-search input {
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  font-size: var(--font-size-sm);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.font-family-search input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.font-family-category {
+  font-size: 0.625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  padding: var(--space-2) var(--space-3);
+}
+
+.font-family-option {
+  display: block;
+  width: 100%;
+  padding: 0.4rem 0.75rem;
+  text-align: left;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  transition: background 0.1s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.font-family-option:hover {
+  background: var(--bg-hover);
+}
+
+.font-family-option.selected {
+  background: var(--color-primary-50);
+  color: var(--color-primary);
+}
+
+/* ===== Font Size ===== */
+.font-manager-font-size {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.font-manager-font-size label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-primary);
+}
+
+.font-size-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.font-size-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.font-size-btn:hover { border-color: var(--color-primary); color: var(--color-primary); }
+
+.font-size-input {
+  width: 48px;
+  height: 32px;
+  text-align: center;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.font-size-input:focus { outline: none; border-color: var(--color-primary); }
+
+.font-size-presets {
+  display: flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+  margin-top: var(--space-1);
+}
+
+.font-size-preset-btn {
+  min-width: 32px;
+  height: 28px;
+  padding: 0 0.5rem;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition: all 0.1s;
+}
+
+.font-size-preset-btn:hover { border-color: var(--color-primary); color: var(--color-primary); }
+.font-size-preset-btn.active { background: var(--color-primary); color: white; border-color: var(--color-primary); }
+
+/* ===== Sliders (headings, spacing) ===== */
+.font-manager-slider-control {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.font-manager-slider-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.font-manager-slider-label-text {
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+}
+
+.font-manager-slider-value {
+  font-size: var(--font-size-xs);
+  color: var(--color-primary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===== Section Groups ===== */
+.font-manager-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.font-manager-section-title {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-primary);
+}
+
+/* ===== Colors ===== */
+.font-manager-color-control {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.font-manager-color-label {
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  min-width: 50px;
+}
+
+.font-manager-color-input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ===== Line Height ===== */
+.font-manager-line-height {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.font-manager-line-height label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-primary);
+}
+
+.font-manager-line-height select {
+  width: 100%;
+  height: 36px;
+  padding: 0 var(--space-3);
+  font-size: var(--font-size-sm);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394a3b8' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 28px;
+}
+
+.font-manager-line-height select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-focus);
+}
+
+.font-manager-line-height select option {
+  background: var(--bg-elevated, #1e293b);
+  color: var(--text-primary, #e2e8f0);
+  padding: 8px;
+}
+
+/* ===== Presets ===== */
+.font-manager-presets {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.font-manager-preset-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  cursor: pointer;
+  transition: all 0.15s;
+  width: 100%;
+  text-align: left;
+}
+
+.font-manager-preset-card:hover {
+  border-color: var(--color-primary-light);
+  box-shadow: var(--shadow-sm);
+}
+
+.font-manager-preset-card.active {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: white;
+}
+
+.font-manager-preset-card.active .font-manager-preset-name { color: white; }
+.font-manager-preset-card.active .font-manager-preset-fonts { color: rgba(255,255,255,0.8); }
+
+.font-manager-preset-swatch {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  font-weight: 700;
+  font-size: 0.875rem;
+  flex-shrink: 0;
+}
+
+.font-manager-preset-info { flex: 1; min-width: 0; }
+.font-manager-preset-name { font-size: var(--font-size-sm); font-weight: 600; color: var(--text-primary); }
+.font-manager-preset-fonts { font-size: var(--font-size-xs); color: var(--text-muted); }
+
+/* ===== Quick Style Preset Cards (actual JS class names) ===== */
+.font-manager-presets-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-2);
+}
+
+.font-preset-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-2);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: center;
+}
+
+.font-preset-card:hover {
+  border-color: var(--color-primary-light);
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
+}
+
+.font-preset-card.active {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+}
+
+.font-preset-card.active .font-preset-name { color: white; }
+.font-preset-card.active .font-preset-font { color: rgba(255,255,255,0.8); }
+.font-preset-card.active .font-preset-size { color: rgba(255,255,255,0.7); }
+
+.font-preset-name {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.font-preset-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+
+.font-preset-font {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.font-preset-size {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.font-preset-color {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid var(--border-primary);
+  display: inline-block;
+  margin-top: 2px;
+}
+
+.font-manager-presets-header {
+  margin-bottom: var(--space-2);
+}
+
+.font-manager-presets-title {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+  margin: 0;
+}
+
+/* ===== Font Family Menu (actual JS class names) ===== */
+.font-family-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: var(--z-popover);
+  background: var(--bg-elevated, #1e293b);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  max-height: 280px;
+  overflow-y: auto;
+  margin-top: 4px;
+}
+
+.font-family-search-input {
+  width: 100%;
+  padding: 6px 10px;
+  font-size: var(--font-size-sm);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  box-sizing: border-box;
+}
+
+.font-family-search-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.font-family-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.font-family-chevron {
+  font-size: 0.625rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* Color row */
+.font-manager-color-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.font-manager-color-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.font-manager-color-swatch {
+  width: 36px;
+  height: 36px;
+  border: 2px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: border-color var(--duration-fast), box-shadow var(--duration-fast), transform var(--duration-fast);
+}
+
+.font-manager-color-swatch:hover {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.3);
+  transform: scale(1.08);
+}
+
+.font-manager-color-swatch:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Section label */
+.font-manager-label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-primary);
+  margin-bottom: var(--space-2);
+}
+
+/* Select control */
+.font-manager-select {
+  width: 100%;
+  height: 36px;
+  padding: 0 var(--space-3);
+  padding-right: 28px;
+  font-size: var(--font-size-sm);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394a3b8' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+
+.font-manager-select option {
+  background: var(--bg-elevated, #1e293b);
+  color: var(--text-primary);
+}
+
+/* ===== Mobile ===== */
+@media (max-width: 767px) {
+  .font-manager {
+    gap: var(--space-3);
+  }
+
+  .font-size-btn {
+    width: 40px;
+    height: 40px;
+    font-size: 1.125rem;
+  }
+
+  .font-size-input {
+    width: 56px;
+    height: 40px;
+    font-size: var(--font-size-base);
+  }
+
+  .font-size-preset-btn {
+    min-width: 40px;
+    height: 36px;
+    padding: 0 0.625rem;
+    font-size: var(--font-size-sm);
+  }
+
+  .font-family-selected {
+    min-height: 44px;
+    padding: 0.625rem 0.75rem;
+  }
+
+  .font-family-option {
+    padding: 0.625rem 0.75rem;
+    font-size: var(--font-size-base);
+  }
+
+  .font-family-menu {
+    max-height: 50vh;
+  }
+
+  .font-family-search input,
+  .font-family-search-input {
+    height: 40px;
+    padding: 0.5rem 0.75rem;
+    font-size: var(--font-size-base);
+  }
+
+  .font-manager-presets-grid {
+    grid-template-columns: 1fr;
+    gap: var(--space-2);
+  }
+
+  .font-preset-card {
+    flex-direction: row;
+    text-align: left;
+    padding: var(--space-3);
+    gap: var(--space-3);
+  }
+
+  .font-manager-preset-card {
+    padding: var(--space-3);
+    gap: var(--space-3);
+  }
+
+  .font-manager-preset-swatch {
+    width: 40px;
+    height: 40px;
+  }
+
+  .font-manager-color-swatch {
+    width: 44px;
+    height: 44px;
+  }
+
+  .font-manager-select,
+  .font-manager-line-height select {
+    height: 44px;
+    font-size: var(--font-size-base);
+  }
+
+  .font-family-category {
+    font-size: 0.6875rem;
+    padding: var(--space-2) var(--space-3);
+  }
+}
+
+@media (max-width: 480px) {
+  .font-size-presets {
+    gap: var(--space-2);
+  }
+
+  .font-preset-card {
+    padding: var(--space-2) var(--space-3);
+  }
+}
+
+/* ===== Print ===== */
+@media print {
+  .font-manager { display: none !important; }
+}

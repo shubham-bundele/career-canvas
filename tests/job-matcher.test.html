@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Job Description Matcher - Full Test Suite</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 2rem; background: #f8fafc; }
+    h1 { color: #1e293b; font-size: 1.5rem; }
+    h2 { color: #334155; font-size: 1.125rem; margin-top: 1.5rem; }
+    .test { padding: 0.5rem 0.75rem; margin: 0.25rem 0; border-radius: 6px; font-size: 0.85rem; }
+    .pass { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
+    .fail { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+    .summary { margin-top: 1.5rem; padding: 1rem; background: #fff; border-radius: 8px; border: 1px solid #e2e8f0; font-size: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>Job Description Matcher - Full Test Suite</h1>
+  <div id="results"></div>
+  <div id="summary" class="summary"></div>
+
+  <script type="module">
+    const results = document.getElementById('results');
+    let passed = 0, failed = 0;
+
+    function log(name, ok, detail) {
+      const div = document.createElement('div');
+      div.className = ok ? 'test pass' : 'test fail';
+      div.textContent = ok ? `PASS: ${name}` : `FAIL: ${name} — ${detail}`;
+      results.appendChild(div);
+      if (ok) passed++; else failed++;
+    }
+
+    function heading(text) {
+      const h = document.createElement('h2');
+      h.textContent = text;
+      results.appendChild(h);
+    }
+
+    async function run() {
+      const { JobMatcher } = await import('../src/js/modules/job-matcher.js');
+      const { STORES } = await import('../src/js/core/db.js');
+
+      const mockDocs = [
+        { id: 'r1', name: 'Test Resume', type: 'resume', archived: false, lastModified: new Date().toISOString(), createdAt: new Date().toISOString(), targetRole: 'Engineer', templateId: 'ats-essential',
+          personalInfo: { professionalTitle: 'Senior Software Engineer', resumeHeadline: 'Full-stack developer with Python and React experience' },
+          sections: [
+            { sectionType: 'summary', title: 'Summary', type: 'text', content: 'Experienced software engineer specializing in Python, JavaScript, and cloud infrastructure.', items: [] },
+            { sectionType: 'experience', title: 'Experience', type: 'list', content: '', items: [
+              { id: 'e1', jobTitle: 'Software Engineer', company: 'Acme Corp', responsibilities: 'Developed REST APIs using Python and Django. Led team of 5 engineers. Implemented CI/CD pipelines with GitHub Actions.', technologies: ['Python', 'Django', 'AWS', 'Docker'], achievements: [{ id: 'a1', text: 'Reduced deployment time by 60% through automation', skillTags: ['automation', 'devops'] }] }
+            ]},
+            { sectionType: 'skills', title: 'Skills', type: 'list', content: '', items: [
+              { id: 's1', name: 'Python', category: 'Programming' },
+              { id: 's2', name: 'JavaScript', category: 'Programming' },
+              { id: 's3', name: 'React', category: 'Frontend' },
+              { id: 's4', name: 'Docker', category: 'DevOps' },
+              { id: 's5', name: 'AWS', category: 'Cloud' }
+            ]},
+            { sectionType: 'education', title: 'Education', type: 'list', content: '', items: [
+              { id: 'ed1', degree: 'Bachelor of Science', institution: 'MIT', specialization: 'Computer Science' }
+            ]}
+          ]
+        }
+      ];
+
+      const store = {};
+      const mockDb = {
+        getAll: async (s) => { if (s === STORES.DOCUMENTS) return mockDocs; return store[s] || []; },
+        get: async (s, id) => { if (s === STORES.DOCUMENTS) return mockDocs.find(d => d.id === id) || null; return (store[s] || []).find(r => r.id === id) || null; },
+        put: async (s, data) => { if (!store[s]) store[s] = []; const idx = store[s].findIndex(r => r.id === data.id); if (idx >= 0) store[s][idx] = data; else store[s].push(data); },
+        delete: async (s, id) => { if (store[s]) store[s] = store[s].filter(r => r.id !== id); }
+      };
+
+      // ========= NAVIGATION =========
+      heading('Navigation');
+
+      try {
+        const m = new JobMatcher(mockDb, null);
+        const el = await m.render();
+        log('Module renders without error', el instanceof HTMLElement);
+        m.destroy();
+      } catch (e) { log('Module renders', false, e.message); }
+
+      try {
+        const m = new JobMatcher(mockDb, null);
+        const el = await m.render();
+        log('Container has aria-label', el.getAttribute('aria-label') === 'Job Description Matcher');
+        m.destroy();
+      } catch (e) { log('aria-label', false, e.message); }
+
+      try {
+        const m = new JobMatcher(mockDb, null);
+        const el = await m.render();
+        document.body.appendChild(el);
+        log('Breadcrumb with Dashboard link renders', !!el.querySelector('.breadcrumb-link[href="#/dashboard"]'));
+        m.destroy();
+      } catch (e) { log('Breadcrumb', false, e.message); }
+
+      try {
+        const m = new JobMatcher(mockDb, null);
+        const el = await m.render();
+        document.body.appendChild(el);
+        log('Back button exists', !!el.querySelector('.jm-back-btn'));
+        m.destroy();
+      } catch (e) { log('Back button', false, e.message); }
+
+      try {
+        const m = new JobMatcher(mockDb, null);
+        log('hasUnsavedChanges returns false initially', m.hasUnsavedChanges() === false);
+      } catch (e) { log('hasUnsavedChanges', false, e.message); }
+
+      // ========= RESUME SELECTION =========
+      heading('Resume Selection');
+
+      try {
+        const m = new JobMatcher(mockDb, null);
+        const el = await m.render();
+        document.body.appendChild(el);
+        await m.showSetup();
+        const items = el.querySelectorAll('.jm-resume-item');
+        log('Resume list shows eligible documents', items.length === 1);
+        m.destroy();
+      } catch (e) { log('Resume list', false, e.message); }
+
+      try {
+        const m = new JobMatcher(mockDb, null);
+        const el = await m.render();
+        document.body.appendChild(el);
+        await m.showSetup();
+        const item = el.querySelector('.jm-resume-item');
+        item.click();
+        log('Resume selection updates state', m.selectedResumeId === 'r1');
+        m.destroy();
+      } catch (e) { log('Resume selection', false, e.message); }
+
+      try {
+        const m = new JobMatcher(mockDb, null);
+        const el = await m.render();
+        document.body.appendChild(el);
+        await m.showSetup();
+        const search = el.querySelector('.jm-search-input');
+        log('Search input exists', !!search);
+        m.destroy();
+      } catch (e) { log('Search input', false, e.message); }
+
+      try {
+        const m = new JobMatcher(mockDb, null);
+        const el = await m.render();
+        document.body.appendChild(el);
+        await m.showSetup();
+        const filters = el.querySelectorAll('.jm-filter-btn');
+        log('Type filter buttons exist', filters.length >= 2);
+        m.destroy();
+      } catch (e) { log('Type filters', false, e.message); }
+
+      // ========= JOB DESCRIPTION =========
+      heading('Job Description CRUD');
+
+      try {
+        const m = new JobMatcher(mockDb, null);
+        await m.render();
+        m.newJD();
+        log('New JD creates object with UUID', !!m.activeJD && !!m.activeJD.id);
+        m.destroy();
+      } catch (e) { log('New JD', false, e.message); }
+
+      try {
+        const m = new JobMatcher(mockDb, null);
+        await m.render();
+        m.newJD();
+        m.activeJD.title = 'Test JD';
+        m.activeJD.company = 'Test Co';
+        m.activeJD.descriptionText = 'Looking for a Python developer with React skills.';
+        await m.saveCurrentJD();
+        const saved = store[STORES.JOB_DESCRIPTIONS];
+        log('Save JD persists to store', saved && saved.length > 0 && saved[0].title === 'Test JD');
+        m.destroy();
+      } catch (e) { log('Save JD', false, e.message); }
+
+      // ========= ANALYSIS ENGINE =========
+      heading('Analysis Engine');
+
+      try {
+        const m = new JobMatcher(mockDb, null);
+        const norm = m.normalizeText('  Hello   World  ');
+        log('Normalization collapses whitespace', norm === 'hello world');
+        m.destroy();
+      } catch (e) { log('Normalization', false, e.message); }
+
+      try {
+        const m = new JobMatcher(mockDb, null);
+        log('C++ preserved as technical term', m.isTechnicalTerm('c++'));
+        log('Python recognized as technical term', m.isTechnicalTerm('python'));
+        log('docker recognized as technical term', m.isTechnicalTerm('docker'));
+        m.destroy();
+      } catch (e) { log('Technical terms', false, e.message); }
+
+      try {
+        const m = new JobMatcher(mockDb, null);
+        log('Stop word "the" detected', m.isStopWord('the'));
+        log('Stop word "candidate" detected', m.isStopWord('candidate'));
+        log('"python" is not a stop word', !m.isStopWord('python'));
+        m.destroy();
+      } catch (e) { log('Stop words', false, e.message); }
+
+      try {
+        const m = new JobMatcher(mockDb, null);
+        const terms = m.extractTerms('We need experience with machine learning and Python development', 'we need experience with machine learning and python development');
+        const termNames = terms.map(t => t.normalized);
+        log('Phrase "machine learning" extracted', termNames.includes('machine learning'));
+        log('Term "python" extracted', termNames.includes('python'));
+        m.destroy();
+      } catch (e) { log('Phrase extraction', false, e.message); }
+
+      try {
+        const m = new JobMatcher(mockDb, null);
+        const abbrevMap = m.getAbbreviationMap();
+        log('JS -> javascript abbreviation exists', abbrevMap.get('js') === 'javascript');
+        log('k8s -> kubernetes abbreviation exists', abbrevMap.get('k8s') === 'kubernetes');
+        m.destroy();
+      } catch (e) { log('Abbreviations', false, e.message); }
+
+      try {
+        const m = new JobMatcher(mockDb, null);
+        const fp1 = m.fingerprint('hello world');
+        const fp2 = m.fingerprint('hello world');
+        const fp3 = m.fingerprint('different text');
+        log('Fingerprint is deterministic', fp1 === fp2);
+        log('Fingerprint differs for different text', fp1 !== fp3);
+        m.destroy();
+      } catch (e) { log('Fingerprinting', false, e.message); }
+
+      // ========= RESUME TEXT EXTRACTION =========
+      heading('Resume Text Extraction');
+
+      try {
+        const m = new JobMatcher(mockDb, null);
+        const text = m.extractResumeText(mockDocs[0]);
+        log('Extracts professional title', text.includes('Senior Software Engineer'));
+        log('Extracts responsibilities', text.includes('REST APIs'));
+        log('Extracts technologies', text.includes('Python'));
+        log('Extracts achievements', text.includes('deployment time'));
+        log('Extracts education', text.includes('Computer Science'));
+        m.destroy();
+      } catch (e) { log('Resume text extraction', false, e.message); }
+
+      // ========= EVIDENCE =========
+      heading('Evidence Extraction');
+
+      try {
+        const m = new JobMatcher(mockDb, null);
+        const evidence = m.findEvidence('python', mockDocs[0]);
+        log('Evidence found for "python"', evidence.length > 0);
+        if (evidence.length > 0) {
+          log('Evidence has resumeSection', !!evidence[0].resumeSection);
+          log('Evidence has fieldPath', !!evidence[0].fieldPath);
+          log('Evidence has excerpt', !!evidence[0].excerpt);
+        }
+        m.destroy();
+      } catch (e) { log('Evidence extraction', false, e.message); }
+
+      // ========= IMPORTANCE CLASSIFICATION =========
+      heading('Importance Classification');
+
+      try {
+        const m = new JobMatcher(mockDb, null);
+        const req = m.classifyImportance({ normalized: 'python', frequency: 1 }, 'must have python experience required');
+        log('Required classification', req.requirement === 'required');
+        const pref = m.classifyImportance({ normalized: 'java', frequency: 1 }, 'java is preferred nice to have');
+        log('Preferred classification', pref.requirement === 'preferred');
+        m.destroy();
+      } catch (e) { log('Importance classification', false, e.message); }
+
+      // ========= FULL ANALYSIS =========
+      heading('Full Analysis');
+
+      try {
+        const m = new JobMatcher(mockDb, null);
+        const el = await m.render();
+        document.body.appendChild(el);
+        m.selectedResumeId = 'r1';
+        m.selectedResume = mockDocs[0];
+        m.newJD(true);
+        m.activeJD.title = 'Python Developer';
+        m.activeJD.company = 'TestCo';
+        m.activeJD.descriptionText = `
+          Requirements:
+          - Must have 5+ years of Python experience
+          - Strong knowledge of React and JavaScript
+          - Experience with Docker and AWS
+          - Knowledge of CI/CD pipelines
+
+          Preferred:
+          - Experience with Kubernetes
+          - Knowledge of machine learning
+          - TypeScript experience
+
+          Responsibilities:
+          - Design and implement REST APIs
+          - Lead a team of engineers
+          - Write clean, maintainable code
+        `;
+        await m.runAnalysis();
+
+        const r = m.analysisResult;
+        log('Analysis produces result', !!r);
+        log('Result has overallEstimate', typeof r.overallEstimate === 'number');
+        log('Result has matchedTerms', Array.isArray(r.matchedTerms) && r.matchedTerms.length > 0);
+        log('Result has missingTerms', Array.isArray(r.missingTerms));
+        log('Result has categoryResults', Array.isArray(r.categoryResults));
+        log('Result has analysisMethodVersion', r.analysisMethodVersion === '1.0.0');
+        log('Result has resumeFingerprint', typeof r.resumeFingerprint === 'string');
+        log('Result has jobDescriptionFingerprint', typeof r.jobDescriptionFingerprint === 'string');
+        log('Result saved to store', !!(store[STORES.MATCH_ANALYSES] || []).find(a => a.id === r.id));
+
+        const matchedNames = r.matchedTerms.map(t => t.normalizedTerm || t.displayTerm);
+        log('Python matched', matchedNames.some(n => n.includes('python')));
+        log('Docker matched', matchedNames.some(n => n.includes('docker')));
+        log('React matched', matchedNames.some(n => n.includes('react')));
+
+        const missingNames = r.missingTerms.map(t => t.normalizedTerm || t.displayTerm);
+        log('Kubernetes detected as missing', missingNames.some(n => n.includes('kubernetes')));
+        log('TypeScript detected as missing', missingNames.some(n => n.includes('typescript')));
+
+        m.destroy();
+      } catch (e) { log('Full analysis', false, e.message); }
+
+      // ========= SCORE CLASSIFICATION =========
+      heading('Score Classification');
+
+      try {
+        const m = new JobMatcher(mockDb, null);
+        log('Score >= 70 is high', m.getScoreClass(75) === 'jm-score--high');
+        log('Score 40-69 is medium', m.getScoreClass(55) === 'jm-score--medium');
+        log('Score < 40 is low', m.getScoreClass(25) === 'jm-score--low');
+        m.destroy();
+      } catch (e) { log('Score classes', false, e.message); }
+
+      // ========= EXPORT =========
+      heading('Export');
+
+      try {
+        const m = new JobMatcher(mockDb, null);
+        const el = await m.render();
+        document.body.appendChild(el);
+        m.selectedResumeId = 'r1';
+        m.selectedResume = mockDocs[0];
+        m.newJD(true);
+        m.activeJD.title = 'Export Test';
+        m.activeJD.descriptionText = 'Looking for Python and React developer.';
+        await m.runAnalysis();
+
+        let downloadCalled = false;
+        const origDownload = m.downloadBlob.bind(m);
+        m.downloadBlob = (blob, filename) => { downloadCalled = true; log('Export filename sanitized', filename.includes('.json') || filename.includes('.txt')); };
+
+        m.exportJSON();
+        log('JSON export triggers download', downloadCalled);
+
+        downloadCalled = false;
+        m.exportText();
+        log('Text export triggers download', downloadCalled);
+
+        m.destroy();
+      } catch (e) { log('Export', false, e.message); }
+
+      // ========= SECURITY =========
+      heading('Security');
+
+      try {
+        const m = new JobMatcher(mockDb, null);
+        const text = m.extractResumeText({ personalInfo: { professionalTitle: '<script>alert("xss")</script>' }, sections: [] });
+        log('Script tags in resume text are stripped', !text.includes('<script>'));
+        m.destroy();
+      } catch (e) { log('XSS prevention', false, e.message); }
+
+      try {
+        const m = new JobMatcher(mockDb, null);
+        log('isStopWord handles empty string', !m.isStopWord(''));
+        log('isTechnicalTerm handles empty string', !m.isTechnicalTerm(''));
+        m.destroy();
+      } catch (e) { log('Empty input handling', false, e.message); }
+
+      // ========= STALE DETECTION =========
+      heading('Staleness Detection');
+
+      try {
+        const m = new JobMatcher(mockDb, null);
+        const analysis = {
+          id: 'test-stale', resumeId: 'r1',
+          resumeFingerprint: 'wrong-fp',
+          jobDescriptionId: null,
+          staleStatus: 'current'
+        };
+        await m.checkStaleness(analysis);
+        log('Stale detected when fingerprint differs', analysis.staleStatus !== 'current');
+        m.destroy();
+      } catch (e) { log('Staleness detection', false, e.message); }
+
+      // ========= SUMMARY =========
+      const total = passed + failed;
+      document.getElementById('summary').innerHTML = `<strong>${passed}/${total} passed</strong>, ${failed} failed`;
+    }
+
+    run().catch(e => { document.getElementById('summary').textContent = 'Test suite crashed: ' + e.message; console.error(e); });
+  </script>
+</body>
+</html>

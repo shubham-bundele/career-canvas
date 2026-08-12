@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Skills Matrix — Step 1: Entry &amp; Navigation Tests</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 2rem; max-width: 800px; margin: 0 auto; background: #f8fafc; }
+    h1 { font-size: 1.5rem; color: #1e293b; margin-bottom: 1rem; }
+    .test { padding: 0.75rem 1rem; margin: 0.5rem 0; border-radius: 8px; font-size: 0.875rem; display: flex; align-items: center; gap: 0.5rem; }
+    .pass { background: #d1fae5; color: #065f46; }
+    .fail { background: #fee2e2; color: #991b1b; }
+    .running { background: #fef3c7; color: #92400e; }
+    .summary { margin-top: 1.5rem; padding: 1rem; border-radius: 8px; font-weight: 600; }
+    .summary.all-pass { background: #d1fae5; color: #065f46; }
+    .summary.has-fail { background: #fee2e2; color: #991b1b; }
+    #results { margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>Skills Matrix — Step 1: Entry &amp; Navigation Tests</h1>
+  <div id="results"></div>
+  <div id="summary"></div>
+
+  <script type="module">
+    const results = document.getElementById('results');
+    const summaryEl = document.getElementById('summary');
+    let passed = 0;
+    let failed = 0;
+
+    function log(name, success, detail = '') {
+      const div = document.createElement('div');
+      div.className = `test ${success ? 'pass' : 'fail'}`;
+      div.textContent = `${success ? '✓' : '✗'} ${name}${detail ? ' — ' + detail : ''}`;
+      results.appendChild(div);
+      if (success) passed++; else failed++;
+    }
+
+    async function runTests() {
+      // Test 1: Module loads without errors
+      try {
+        const module = await import('../src/js/modules/skills-matrix.js');
+        log('Module import', !!module.SkillsMatrix, 'SkillsMatrix class exported');
+      } catch (e) {
+        log('Module import', false, e.message);
+      }
+
+      // Test 2: Class can be instantiated
+      try {
+        const { SkillsMatrix } = await import('../src/js/modules/skills-matrix.js');
+        const mockDb = { getAll: async () => [], get: async () => null, put: async () => {}, delete: async () => {} };
+        const instance = new SkillsMatrix(mockDb);
+        log('Instantiation', !!instance, 'Instance created successfully');
+      } catch (e) {
+        log('Instantiation', false, e.message);
+      }
+
+      // Test 3: Render returns an element
+      try {
+        const { SkillsMatrix } = await import('../src/js/modules/skills-matrix.js');
+        const mockDb = { getAll: async () => [], get: async () => null, put: async () => {}, delete: async () => {} };
+        const instance = new SkillsMatrix(mockDb);
+        const el = await instance.render();
+        log('Render returns element', el instanceof HTMLElement, `Tag: ${el.tagName}`);
+      } catch (e) {
+        log('Render returns element', false, e.message);
+      }
+
+      // Test 4: Container has correct role and label
+      try {
+        const { SkillsMatrix } = await import('../src/js/modules/skills-matrix.js');
+        const mockDb = { getAll: async () => [], get: async () => null, put: async () => {}, delete: async () => {} };
+        const instance = new SkillsMatrix(mockDb);
+        const el = await instance.render();
+        const role = el.getAttribute('role');
+        const label = el.getAttribute('aria-label');
+        log('ARIA role', role === 'main', `role="${role}"`);
+        log('ARIA label', label === 'Skills Evidence Matrix', `aria-label="${label}"`);
+      } catch (e) {
+        log('ARIA attributes', false, e.message);
+      }
+
+      // Test 5: Breadcrumb exists
+      try {
+        const { SkillsMatrix } = await import('../src/js/modules/skills-matrix.js');
+        const mockDb = { getAll: async () => [], get: async () => null, put: async () => {}, delete: async () => {} };
+        const instance = new SkillsMatrix(mockDb);
+        const el = await instance.render();
+        const breadcrumb = el.querySelector('[aria-label="Breadcrumb"]');
+        log('Breadcrumb exists', !!breadcrumb);
+      } catch (e) {
+        log('Breadcrumb exists', false, e.message);
+      }
+
+      // Test 6: Breadcrumb has Dashboard link
+      try {
+        const { SkillsMatrix } = await import('../src/js/modules/skills-matrix.js');
+        const mockDb = { getAll: async () => [], get: async () => null, put: async () => {}, delete: async () => {} };
+        const instance = new SkillsMatrix(mockDb);
+        const el = await instance.render();
+        const dashLink = el.querySelector('.breadcrumb-link');
+        log('Dashboard breadcrumb link', dashLink && dashLink.getAttribute('href') === '#/dashboard', `href="${dashLink?.getAttribute('href')}"`);
+      } catch (e) {
+        log('Dashboard breadcrumb link', false, e.message);
+      }
+
+      // Test 7: Current breadcrumb item
+      try {
+        const { SkillsMatrix } = await import('../src/js/modules/skills-matrix.js');
+        const mockDb = { getAll: async () => [], get: async () => null, put: async () => {}, delete: async () => {} };
+        const instance = new SkillsMatrix(mockDb);
+        const el = await instance.render();
+        const current = el.querySelector('[aria-current="page"]');
+        log('Current breadcrumb', current && current.textContent === 'Skills Evidence Matrix', `text="${current?.textContent}"`);
+      } catch (e) {
+        log('Current breadcrumb', false, e.message);
+      }
+
+      // Test 8: Title exists
+      try {
+        const { SkillsMatrix } = await import('../src/js/modules/skills-matrix.js');
+        const mockDb = { getAll: async () => [], get: async () => null, put: async () => {}, delete: async () => {} };
+        const instance = new SkillsMatrix(mockDb);
+        const el = await instance.render();
+        const h1 = el.querySelector('h1');
+        log('Title exists', h1 && h1.textContent === 'Skills Evidence Matrix');
+      } catch (e) {
+        log('Title exists', false, e.message);
+      }
+
+      // Test 9: Back button exists
+      try {
+        const { SkillsMatrix } = await import('../src/js/modules/skills-matrix.js');
+        const mockDb = { getAll: async () => [], get: async () => null, put: async () => {}, delete: async () => {} };
+        const instance = new SkillsMatrix(mockDb);
+        const el = await instance.render();
+        const backBtn = el.querySelector('.skills-matrix-back-btn');
+        const ariaLabel = backBtn?.getAttribute('aria-label');
+        log('Back button exists', !!backBtn && ariaLabel === 'Back to Dashboard');
+      } catch (e) {
+        log('Back button', false, e.message);
+      }
+
+      // Test 10: Empty state displayed
+      try {
+        const { SkillsMatrix } = await import('../src/js/modules/skills-matrix.js');
+        const mockDb = { getAll: async () => [], get: async () => null, put: async () => {}, delete: async () => {} };
+        const instance = new SkillsMatrix(mockDb);
+        const el = await instance.render();
+        const emptyState = el.querySelector('.skills-matrix-empty-state');
+        log('Empty state rendered', !!emptyState);
+      } catch (e) {
+        log('Empty state', false, e.message);
+      }
+
+      // Test 11: Privacy note exists
+      try {
+        const { SkillsMatrix } = await import('../src/js/modules/skills-matrix.js');
+        const mockDb = { getAll: async () => [], get: async () => null, put: async () => {}, delete: async () => {} };
+        const instance = new SkillsMatrix(mockDb);
+        const el = await instance.render();
+        const privacyNote = el.querySelector('.skills-matrix-privacy-note');
+        log('Privacy note exists', !!privacyNote && privacyNote.textContent.includes('not uploaded'));
+      } catch (e) {
+        log('Privacy note', false, e.message);
+      }
+
+      // Test 12: Destroy cleans up
+      try {
+        const { SkillsMatrix } = await import('../src/js/modules/skills-matrix.js');
+        const mockDb = { getAll: async () => [], get: async () => null, put: async () => {}, delete: async () => {} };
+        const instance = new SkillsMatrix(mockDb);
+        const el = await instance.render();
+        document.body.appendChild(el);
+        instance.destroy();
+        log('Destroy cleanup', instance.container === null && instance.listeners.length === 0);
+      } catch (e) {
+        log('Destroy cleanup', false, e.message);
+      }
+
+      // Test 13: hasUnsavedChanges returns false
+      try {
+        const { SkillsMatrix } = await import('../src/js/modules/skills-matrix.js');
+        const mockDb = { getAll: async () => [], get: async () => null, put: async () => {}, delete: async () => {} };
+        const instance = new SkillsMatrix(mockDb);
+        log('hasUnsavedChanges', instance.hasUnsavedChanges() === false);
+      } catch (e) {
+        log('hasUnsavedChanges', false, e.message);
+      }
+
+      // Test 14: CSS loads
+      try {
+        const response = await fetch('../src/css/skills-matrix.css');
+        log('CSS loads', response.ok, `Status: ${response.status}`);
+      } catch (e) {
+        log('CSS loads', false, e.message);
+      }
+
+      // Summary
+      summaryEl.className = `summary ${failed === 0 ? 'all-pass' : 'has-fail'}`;
+      summaryEl.textContent = `${passed} passed, ${failed} failed out of ${passed + failed} tests`;
+    }
+
+    runTests();
+  </script>
+</body>
+</html>

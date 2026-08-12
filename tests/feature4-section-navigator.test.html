@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html><head><title>Feature 4 Test: Section Navigator</title></head>
+<body>
+<h2>Feature 4: Section Navigator</h2>
+<pre id="log"></pre>
+<script type="module">
+const el = document.getElementById('log');
+function log(msg) { el.textContent += msg + '\n'; }
+let passed = 0, failed = 0;
+function assert(name, cond) {
+  if (cond) { log('  PASS: ' + name); passed++; }
+  else { log('  FAIL: ' + name); failed++; }
+}
+
+try {
+  const { createEmptyDocument, DOCUMENT_TYPES } = await import('./src/js/core/schema.js');
+  const { Database } = await import('./src/js/core/db.js');
+  const db = new Database();
+  await db.open();
+
+  // Create test document with sections
+  const doc = createEmptyDocument(DOCUMENT_TYPES.RESUME);
+  doc.name = 'SectionNavTest';
+
+  log('\n--- Test 1: Document has sections with required properties ---');
+  assert('Has sections array', Array.isArray(doc.sections));
+  assert('Has 6 sections', doc.sections.length === 6);
+  doc.sections.forEach((s, i) => {
+    assert(`Section ${i} has id`, typeof s.id === 'string' && s.id.length > 0);
+    assert(`Section ${i} has title`, typeof s.title === 'string' && s.title.length > 0);
+    assert(`Section ${i} has sectionType`, typeof s.sectionType === 'string');
+    assert(`Section ${i} has visible`, s.visible === true || s.visible === undefined);
+  });
+
+  // Test 2: Search filtering
+  log('\n--- Test 2: Search filtering ---');
+  function filterSections(sections, search, filter) {
+    return sections.filter(s => {
+      if (search && !s.title.toLowerCase().includes(search) &&
+          !(s.sectionType || '').toLowerCase().includes(search)) return false;
+      if (filter === 'visible' && s.visible === false) return false;
+      if (filter === 'hidden' && s.visible !== false) return false;
+      if (filter === 'complete') {
+        if (s.type === 'text') { if (!s.content || !s.content.trim()) return false; }
+        else { if (!s.items || s.items.length === 0) return false; }
+      }
+      if (filter === 'incomplete') {
+        if (s.type === 'text') { if (s.content && s.content.trim()) return false; }
+        else { if (s.items && s.items.length > 0) return false; }
+      }
+      return true;
+    });
+  }
+
+  const allSections = filterSections(doc.sections, '', '');
+  assert('No filter: all 6 sections', allSections.length === 6);
+
+  const skillsSearch = filterSections(doc.sections, 'skill', '');
+  assert('Search "skill": finds Skills section', skillsSearch.length >= 1);
+  assert('Search "skill": correct section', skillsSearch[0].title.toLowerCase().includes('skill'));
+
+  const noMatch = filterSections(doc.sections, 'xyznonexistent', '');
+  assert('Search nonexistent: no results', noMatch.length === 0);
+
+  // Test 3: Visibility filter
+  log('\n--- Test 3: Visibility filtering ---');
+  doc.sections[0].visible = false;
+  const visibleOnly = filterSections(doc.sections, '', 'visible');
+  assert('Visible filter: excludes hidden', visibleOnly.length === 5);
+  const hiddenOnly = filterSections(doc.sections, '', 'hidden');
+  assert('Hidden filter: shows hidden', hiddenOnly.length === 1);
+  assert('Hidden section is correct', hiddenOnly[0].id === doc.sections[0].id);
+
+  // Test 4: Complete/Incomplete filter
+  log('\n--- Test 4: Completeness filtering ---');
+  const incomplete = filterSections(doc.sections, '', 'incomplete');
+  assert('All sections start incomplete', incomplete.length === 6);
+  doc.sections[1].items = [{ id: 'test', jobTitle: 'Engineer' }];
+  const complete = filterSections(doc.sections, '', 'complete');
+  assert('One section with items is complete', complete.length === 1);
+
+  // Test 5: Move section
+  log('\n--- Test 5: Section reordering ---');
+  const originalOrder = doc.sections.map(s => s.id);
+  const movedSection = doc.sections[0];
+  doc.sections.splice(0, 1);
+  doc.sections.splice(doc.sections.length, 0, movedSection);
+  assert('Move to bottom: first section moved', doc.sections[doc.sections.length - 1].id === originalOrder[0]);
+  assert('Move to bottom: order changed', doc.sections[0].id === originalOrder[1]);
+
+  // Test 6: Rename section
+  log('\n--- Test 6: Rename section ---');
+  const origTitle = doc.sections[0].title;
+  doc.sections[0].title = 'Custom Name';
+  assert('Rename works', doc.sections[0].title === 'Custom Name');
+  doc.sections[0].title = origTitle;
+  assert('Reset name works', doc.sections[0].title === origTitle);
+
+  // Test 7: Hide/Show section
+  log('\n--- Test 7: Hide/Show ---');
+  doc.sections[2].visible = false;
+  assert('Hide sets visible=false', doc.sections[2].visible === false);
+  doc.sections[2].visible = true;
+  assert('Show sets visible=true', doc.sections[2].visible === true);
+
+  // Test 8: Persistence
+  log('\n--- Test 8: Section changes persist ---');
+  doc.sections[0].title = 'Renamed Section';
+  doc.sections[3].visible = false;
+  await db.put('documents', doc);
+  const loaded = await db.get('documents', doc.id);
+  assert('Renamed title persists', loaded.sections[0].title === 'Renamed Section');
+  assert('Hidden state persists', loaded.sections[3].visible === false);
+
+  // Cleanup
+  await db.delete('documents', doc.id);
+
+  log('\n========================================');
+  log('RESULTS: ' + passed + ' passed, ' + failed + ' failed');
+  log(failed === 0 ? 'ALL TESTS PASSED' : 'SOME TESTS FAILED');
+} catch(e) {
+  log('FATAL: ' + e.message);
+  log(e.stack);
+}
+</script>
+</body>
+</html>

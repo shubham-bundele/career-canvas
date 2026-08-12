@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html><head><title>Feature 17 Test: Font Role Controls</title></head>
+<body>
+<h2>Feature 17: Font Role Controls</h2>
+<pre id="log"></pre>
+<script type="module">
+const el = document.getElementById('log');
+function log(msg) { el.textContent += msg + '\n'; }
+let passed = 0, failed = 0;
+function assert(name, cond) { if (cond) { log('  PASS: ' + name); passed++; } else { log('  FAIL: ' + name); failed++; } }
+try {
+  const { FontManager } = await import('./src/js/modules/font-manager.js');
+  const { createEmptyDocument, DOCUMENT_TYPES } = await import('./src/js/core/schema.js');
+  const { Database } = await import('./src/js/core/db.js');
+  const db = new Database(); await db.open();
+
+  log('\n--- Test 1: FontManager exists ---');
+  assert('FontManager class exists', typeof FontManager === 'function');
+  const fm = new FontManager({ fontFamily: 'Arial', fontSize: 11, nameSize: 24, headingSize: 14 }, () => {});
+  assert('Instance created', fm !== null);
+  assert('Has render method', typeof fm.render === 'function');
+  assert('Has getSettings method', typeof fm.getSettings === 'function');
+
+  log('\n--- Test 2: Settings include font roles ---');
+  const settings = fm.getSettings();
+  assert('Has fontFamily', typeof settings.fontFamily === 'string');
+  assert('Has fontSize (body)', typeof settings.fontSize === 'number');
+  assert('Has nameSize', typeof settings.nameSize === 'number');
+  assert('Has headingSize', typeof settings.headingSize === 'number');
+
+  log('\n--- Test 3: Change font family ---');
+  fm.settings.fontFamily = 'Georgia';
+  assert('Font changed to Georgia', fm.settings.fontFamily === 'Georgia');
+  fm.settings.fontFamily = 'Courier New';
+  assert('Font changed to Courier New', fm.settings.fontFamily === 'Courier New');
+
+  log('\n--- Test 4: Change sizes ---');
+  fm.settings.fontSize = 12;
+  assert('Body size changed', fm.settings.fontSize === 12);
+  fm.settings.nameSize = 28;
+  assert('Name size changed', fm.settings.nameSize === 28);
+  fm.settings.headingSize = 16;
+  assert('Heading size changed', fm.settings.headingSize === 16);
+
+  log('\n--- Test 5: Persistence through document ---');
+  const doc = createEmptyDocument(DOCUMENT_TYPES.RESUME);
+  if (!doc.design) doc.design = {};
+  doc.design.fontFamily = 'Georgia';
+  doc.design.fontSize = 12;
+  doc.design.nameSize = 28;
+  doc.design.headingSize = 16;
+  doc.name = 'FontRoleTest';
+  await db.put('documents', doc);
+  const loaded = await db.get('documents', doc.id);
+  assert('fontFamily persists', loaded.design.fontFamily === 'Georgia');
+  assert('fontSize persists', loaded.design.fontSize === 12);
+  assert('nameSize persists', loaded.design.nameSize === 28);
+  assert('headingSize persists', loaded.design.headingSize === 16);
+  await db.delete('documents', doc.id);
+
+  log('\n--- Test 6: Undo simulation ---');
+  const h = [{ fontFamily: 'Arial', fontSize: 11 }];
+  h.push({ fontFamily: 'Georgia', fontSize: 12 });
+  assert('Undo restores Arial', JSON.parse(JSON.stringify(h[0])).fontFamily === 'Arial');
+  assert('Redo restores Georgia', JSON.parse(JSON.stringify(h[1])).fontFamily === 'Georgia');
+
+  log('\n========================================');
+  log('RESULTS: ' + passed + ' passed, ' + failed + ' failed');
+  log(failed === 0 ? 'ALL TESTS PASSED' : 'SOME TESTS FAILED');
+} catch(e) { log('FATAL: ' + e.message + '\n' + e.stack); }
+</script>
+</body>
+</html>

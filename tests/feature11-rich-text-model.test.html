@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html><head><title>Feature 11 Test: Safe Rich-Text Data Model</title></head>
+<body>
+<h2>Feature 11: Safe Rich-Text Data Model</h2>
+<pre id="log"></pre>
+<script type="module">
+const el = document.getElementById('log');
+function log(msg) { el.textContent += msg + '\n'; }
+let passed = 0, failed = 0;
+function assert(name, cond) {
+  if (cond) { log('  PASS: ' + name); passed++; }
+  else { log('  FAIL: ' + name); failed++; }
+}
+
+try {
+  const { sanitizeRichText, plainTextToHtml, htmlToPlainText, isHtmlContent, migrateContent } = await import('./src/js/utils/rich-text-sanitizer.js');
+
+  // Test 1: Allowed tags pass through
+  log('\n--- Test 1: Allowed tags preserved ---');
+  assert('Bold preserved', sanitizeRichText('<strong>bold</strong>').includes('<strong>bold</strong>'));
+  assert('Italic preserved', sanitizeRichText('<em>italic</em>').includes('<em>italic</em>'));
+  assert('B tag preserved', sanitizeRichText('<b>bold</b>').includes('<b>bold</b>'));
+  assert('I tag preserved', sanitizeRichText('<i>italic</i>').includes('<i>italic</i>'));
+  assert('Underline preserved', sanitizeRichText('<u>underline</u>').includes('<u>underline</u>'));
+  assert('Paragraph preserved', sanitizeRichText('<p>text</p>').includes('<p>text</p>'));
+  assert('BR preserved', sanitizeRichText('line1<br>line2').includes('<br>'));
+  assert('UL preserved', sanitizeRichText('<ul><li>item</li></ul>').includes('<ul>'));
+  assert('OL preserved', sanitizeRichText('<ol><li>item</li></ol>').includes('<ol>'));
+  assert('LI preserved', sanitizeRichText('<ul><li>item</li></ul>').includes('<li>item</li>'));
+
+  // Test 2: Dangerous tags removed
+  log('\n--- Test 2: Dangerous tags rejected ---');
+  assert('Script removed', !sanitizeRichText('<script>alert("xss")</script>').includes('script'));
+  assert('Script content removed', !sanitizeRichText('<script>alert("xss")</script>').includes('alert'));
+  assert('Style removed', !sanitizeRichText('<style>body{display:none}</style>').includes('style'));
+  assert('Iframe removed', !sanitizeRichText('<iframe src="evil.html"></iframe>').includes('iframe'));
+  assert('Object removed', !sanitizeRichText('<object data="x"></object>').includes('object'));
+  assert('Embed removed', !sanitizeRichText('<embed src="x">').includes('embed'));
+  assert('Form removed', !sanitizeRichText('<form action="x"><input></form>').includes('form'));
+  assert('Input removed', !sanitizeRichText('<input value="x">').includes('input'));
+
+  // Test 3: Event handlers removed
+  log('\n--- Test 3: Event handlers stripped ---');
+  const withHandler = sanitizeRichText('<p onclick="alert(1)">text</p>');
+  assert('onclick removed', !withHandler.includes('onclick'));
+  assert('Text preserved', withHandler.includes('text'));
+
+  const withMouseover = sanitizeRichText('<a href="http://example.com" onmouseover="steal()">link</a>');
+  assert('onmouseover removed', !withMouseover.includes('onmouseover'));
+
+  // Test 4: Dangerous URLs removed
+  log('\n--- Test 4: Dangerous URLs blocked ---');
+  const jsLink = sanitizeRichText('<a href="javascript:alert(1)">click</a>');
+  assert('javascript: URL removed', !jsLink.includes('javascript:'));
+
+  const dataLink = sanitizeRichText('<a href="data:text/html,<script>alert(1)</script>">click</a>');
+  assert('data: URL removed', !dataLink.includes('data:'));
+
+  // Test 5: Safe links preserved
+  log('\n--- Test 5: Safe links preserved ---');
+  const safeLink = sanitizeRichText('<a href="https://example.com">link</a>');
+  assert('HTTPS link preserved', safeLink.includes('https://example.com'));
+  assert('Link has rel=noopener', safeLink.includes('noopener'));
+
+  // Test 6: Style attributes removed
+  log('\n--- Test 6: Inline styles stripped ---');
+  const styled = sanitizeRichText('<p style="color:red;font-size:100px">text</p>');
+  assert('Style attribute removed', !styled.includes('style='));
+  assert('Text preserved', styled.includes('text'));
+
+  // Test 7: Unwrap unknown but safe tags
+  log('\n--- Test 7: Unknown tags unwrapped ---');
+  const divContent = sanitizeRichText('<div>content inside div</div>');
+  assert('Div unwrapped, content kept', divContent.includes('content inside div'));
+  assert('Div tag removed', !divContent.includes('<div'));
+
+  // Test 8: Plain text to HTML
+  log('\n--- Test 8: Plain text conversion ---');
+  assert('Plain text escaped', plainTextToHtml('<script>alert(1)</script>').includes('&lt;script&gt;'));
+  assert('Newlines to BR', plainTextToHtml('line1\nline2').includes('<br>'));
+
+  // Test 9: HTML to plain text
+  log('\n--- Test 9: HTML to plain text ---');
+  assert('Tags stripped', htmlToPlainText('<strong>bold</strong> text') === 'bold text');
+  assert('Empty input', htmlToPlainText('') === '');
+
+  // Test 10: Content detection
+  log('\n--- Test 10: HTML detection ---');
+  assert('Detects HTML', isHtmlContent('<p>hello</p>') === true);
+  assert('Plain text not HTML', isHtmlContent('hello world') === false);
+  assert('Empty not HTML', isHtmlContent('') === false);
+
+  // Test 11: Migration
+  log('\n--- Test 11: Content migration ---');
+  const migrated1 = migrateContent('Plain text with\nnewlines');
+  assert('Plain text migrated with BR', migrated1.includes('<br>'));
+
+  const migrated2 = migrateContent('<p>Already <strong>HTML</strong></p>');
+  assert('HTML preserved and sanitized', migrated2.includes('<strong>HTML</strong>'));
+
+  const migrated3 = migrateContent('<script>evil</script><p>safe</p>');
+  assert('Dangerous HTML sanitized during migration', !migrated3.includes('script'));
+  assert('Safe content preserved', migrated3.includes('safe'));
+
+  const migrated4 = migrateContent('');
+  assert('Empty string returns empty', migrated4 === '');
+
+  // Test 12: Prototype pollution prevention
+  log('\n--- Test 12: Prototype pollution ---');
+  const pollution = sanitizeRichText('<p __proto__="evil" constructor="bad">text</p>');
+  assert('Proto attrs removed', !pollution.includes('__proto__'));
+  assert('Constructor attr removed', !pollution.includes('constructor='));
+
+  log('\n========================================');
+  log('RESULTS: ' + passed + ' passed, ' + failed + ' failed');
+  log(failed === 0 ? 'ALL TESTS PASSED' : 'SOME TESTS FAILED');
+} catch(e) {
+  log('FATAL: ' + e.message);
+  log(e.stack);
+}
+</script>
+</body>
+</html>

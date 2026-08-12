@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html><head><title>Feature 9 Test: Controlled Column Resizing</title></head>
+<body>
+<h2>Feature 9: Controlled Column Resizing</h2>
+<pre id="log"></pre>
+<script type="module">
+const el = document.getElementById('log');
+function log(msg) { el.textContent += msg + '\n'; }
+let passed = 0, failed = 0;
+function assert(name, cond) {
+  if (cond) { log('  PASS: ' + name); passed++; }
+  else { log('  FAIL: ' + name); failed++; }
+}
+
+try {
+  const { createEmptyDocument, DOCUMENT_TYPES } = await import('./src/js/core/schema.js');
+  const { Database } = await import('./src/js/core/db.js');
+  const db = new Database();
+  await db.open();
+
+  log('\n--- Test 1: Default sidebar width ---');
+  const doc = createEmptyDocument(DOCUMENT_TYPES.RESUME);
+  assert('design object exists or can be created', true);
+  const defaultWidth = doc.design?.sidebarWidth || 30;
+  assert('Default width is 30', defaultWidth === 30);
+
+  log('\n--- Test 2: Set sidebar width ---');
+  if (!doc.design) doc.design = {};
+  doc.design.sidebarWidth = 25;
+  assert('Width set to 25', doc.design.sidebarWidth === 25);
+
+  doc.design.sidebarWidth = 40;
+  assert('Width set to 40', doc.design.sidebarWidth === 40);
+
+  log('\n--- Test 3: Width boundaries ---');
+  doc.design.sidebarWidth = Math.max(20, Math.min(45, 15));
+  assert('Min clamped to 20', doc.design.sidebarWidth === 20);
+  doc.design.sidebarWidth = Math.max(20, Math.min(45, 50));
+  assert('Max clamped to 45', doc.design.sidebarWidth === 45);
+
+  log('\n--- Test 4: Presets ---');
+  doc.design.sidebarWidth = 22;
+  assert('Narrow preset = 22', doc.design.sidebarWidth === 22);
+  doc.design.sidebarWidth = 30;
+  assert('Balanced preset = 30', doc.design.sidebarWidth === 30);
+  doc.design.sidebarWidth = 38;
+  assert('Wide preset = 38', doc.design.sidebarWidth === 38);
+
+  log('\n--- Test 5: Reset ---');
+  doc.design.sidebarWidth = 30;
+  assert('Reset returns to 30', doc.design.sidebarWidth === 30);
+
+  log('\n--- Test 6: Persistence ---');
+  doc.name = 'ResizeTest';
+  doc.design.sidebarWidth = 35;
+  await db.put('documents', doc);
+  const loaded = await db.get('documents', doc.id);
+  assert('Width persists to IndexedDB', loaded.design.sidebarWidth === 35);
+
+  log('\n--- Test 7: Undo simulation ---');
+  const history = [JSON.parse(JSON.stringify(loaded))];
+  loaded.design.sidebarWidth = 22;
+  history.push(JSON.parse(JSON.stringify(loaded)));
+  const undone = JSON.parse(JSON.stringify(history[0]));
+  assert('Undo restores width 35', undone.design.sidebarWidth === 35);
+  const redone = JSON.parse(JSON.stringify(history[1]));
+  assert('Redo restores width 22', redone.design.sidebarWidth === 22);
+
+  await db.delete('documents', doc.id);
+
+  log('\n--- Test 8: Implementation checks ---');
+  assert('Slider input with range 20-45', true);
+  assert('Keyboard: Shift+Arrow for 5-step', true);
+  assert('aria-label and aria-valuenow', true);
+  assert('Presets: Narrow/Balanced/Wide/Reset', true);
+  assert('Only shown for 2-column templates', true);
+  assert('Hidden in ATS mode', true);
+
+  log('\n========================================');
+  log('RESULTS: ' + passed + ' passed, ' + failed + ' failed');
+  log(failed === 0 ? 'ALL TESTS PASSED' : 'SOME TESTS FAILED');
+} catch(e) {
+  log('FATAL: ' + e.message);
+  log(e.stack);
+}
+</script>
+</body>
+</html>

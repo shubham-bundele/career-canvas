@@ -1,0 +1,716 @@
+/**
+ * CareerCanvas Print Styles
+ * Optimized for printing resumes to PDF
+ */
+
+@media print {
+  /* ===== Reset Page Defaults ===== */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  @page {
+    size: letter;
+    margin: 0;
+  }
+
+  /* Named page rules for different paper sizes */
+  @page letter {
+    size: 8.5in 11in;
+    margin: 0;
+  }
+
+  @page a4 {
+    size: 210mm 297mm;
+    margin: 0;
+  }
+
+  @page legal {
+    size: 8.5in 14in;
+    margin: 0;
+  }
+
+  /* Apply page rules to elements */
+  .page-letter {
+    page: letter;
+  }
+
+  .page-a4 {
+    page: a4;
+  }
+
+  .page-legal {
+    page: legal;
+  }
+
+  /* ===== Hide Non-Printable Elements ===== */
+  header,
+  nav,
+  .app-header,
+  .app-sidebar,
+  .editor-toolbar,
+  .editor-panel-left,
+  .editor-left-panel,
+  .editor-panel-right,
+  .editor-right-panel,
+  .guidance-panel,
+  .preview-controls,
+  .mobile-panel-tabs,
+  .mobile-bottom-tabs,
+  .mobile-nav,
+  .fab,
+  .toast-container,
+  .modal,
+  .dropdown-menu,
+  .tooltip,
+  button,
+  .btn,
+  input,
+  textarea,
+  select,
+  .form-group,
+  .editor-sections,
+  .template-filters,
+  .dashboard-controls,
+  .quick-actions,
+  .document-actions,
+  .action-menu,
+  .toolbar,
+  .panel-resize-handle,
+  .autocomplete-dropdown,
+  .context-menu,
+  .floating-format-toolbar,
+  .design-studio-overlay,
+  .exp-calc-overlay,
+  .onboarding-overlay,
+  footer,
+  aside,
+  .no-print {
+    display: none !important;
+  }
+
+  /* ===== Body and Root ===== */
+  html,
+  body {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: visible;
+    background: white;
+  }
+
+  body {
+    font-size: 11pt;
+    line-height: 1.4;
+    color: #000000;
+  }
+
+  /* ===== Show Only Resume Content ===== */
+  .print-document,
+  .resume-document,
+  .preview-paper,
+  .preview-page {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: var(--print-margin, 0.5in) !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    background: white !important;
+    overflow: visible !important;
+    page-break-after: auto;
+    position: relative;
+    transform: none !important;
+    transform-origin: initial !important;
+  }
+
+  .preview-content {
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    background: white !important;
+  }
+
+  .resume-template {
+    width: 100% !important;
+    max-width: 100% !important;
+    background: white !important;
+  }
+
+  /* Reset main containers — full chain from #app to preview-content */
+  #app,
+  .app,
+  main,
+  .app-main,
+  .app-main--editor,
+  .app-content,
+  .resume-editor,
+  .editor-layout,
+  .editor-main-content,
+  .editor-panel-center,
+  .editor-preview-panel,
+  .preview-container {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+    border: none !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+    flex: none !important;
+    transform: none !important;
+  }
+
+  /* ===== Page Breaking ===== */
+
+  /* Avoid breaking inside these elements */
+  .resume-section,
+  .resume-entry,
+  .experience-item,
+  .education-item,
+  .project-item,
+  blockquote,
+  pre,
+  table,
+  figure,
+  .card {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* Keep headings with following content */
+  h1, h2, h3, h4, h5, h6 {
+    page-break-after: avoid;
+    break-after: avoid;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* Avoid orphans and widows */
+  p,
+  li {
+    orphans: 3;
+    widows: 3;
+  }
+
+  /* Allow breaks before major sections */
+  .resume-section {
+    page-break-before: auto;
+    break-before: auto;
+  }
+
+  /* Force page break */
+  .page-break,
+  .page-break-before {
+    page-break-before: always;
+    break-before: page;
+  }
+
+  .page-break-after {
+    page-break-after: always;
+    break-after: page;
+  }
+
+  /* Avoid breaks */
+  .page-break-avoid,
+  .no-break {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* ===== Typography ===== */
+  h1 {
+    font-size: 24pt;
+    margin-bottom: 8pt;
+  }
+
+  h2 {
+    font-size: 16pt;
+    margin-top: 12pt;
+    margin-bottom: 6pt;
+  }
+
+  h3 {
+    font-size: 14pt;
+    margin-top: 10pt;
+    margin-bottom: 4pt;
+  }
+
+  h4 {
+    font-size: 12pt;
+    margin-top: 8pt;
+    margin-bottom: 4pt;
+  }
+
+  h5, h6 {
+    font-size: 11pt;
+    margin-top: 6pt;
+    margin-bottom: 3pt;
+  }
+
+  p {
+    margin-bottom: 6pt;
+  }
+
+  ul, ol {
+    margin-bottom: 6pt;
+  }
+
+  li {
+    margin-bottom: 3pt;
+  }
+
+  /* ===== Resume Template Print Fixes ===== */
+  .resume-template {
+    padding: 0.5in 0.6in !important;
+    font-size: 10pt !important;
+    line-height: 1.35 !important;
+  }
+
+  .resume-template h1 {
+    font-size: 20pt !important;
+    margin-bottom: 4pt !important;
+    margin-top: 0 !important;
+  }
+
+  .resume-template h2 {
+    font-size: 12pt !important;
+    margin-top: 10pt !important;
+    margin-bottom: 4pt !important;
+    padding-bottom: 2pt !important;
+  }
+
+  .resume-template h3 {
+    font-size: 11pt !important;
+    margin-top: 6pt !important;
+    margin-bottom: 2pt !important;
+  }
+
+  .resume-template ul {
+    margin: 2pt 0 6pt 0 !important;
+    padding-left: 14pt !important;
+  }
+
+  .resume-template li {
+    margin-bottom: 2pt !important;
+    line-height: 1.3 !important;
+    font-size: 10pt !important;
+  }
+
+  .resume-template div[style*="margin-bottom"] {
+    margin-bottom: 6pt !important;
+  }
+
+  /* ===== Links ===== */
+  a {
+    color: #000000;
+    text-decoration: none;
+  }
+
+  /* Optionally show URLs after links */
+  .print-urls a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-size: 9pt;
+    color: #666666;
+  }
+
+  /* Don't show URLs for email or tel links */
+  a[href^="mailto"]::after,
+  a[href^="tel"]::after {
+    content: none;
+  }
+
+  /* ===== Remove Decorative Elements ===== */
+  .shadow,
+  [class*="shadow-"] {
+    box-shadow: none !important;
+  }
+
+  .rounded,
+  [class*="rounded"] {
+    border-radius: 0 !important;
+  }
+
+  /* ===== Colors and Backgrounds ===== */
+
+  /* Force colored headers to print */
+  .resume-header,
+  .section-header,
+  [data-print-background] {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Remove most background colors */
+  *:not(.resume-header):not(.section-header):not([data-print-background]) {
+    background-color: transparent !important;
+    background-image: none !important;
+  }
+
+  /* Ensure text is black for maximum contrast */
+  body,
+  p,
+  li,
+  td,
+  span {
+    color: #000000 !important;
+  }
+
+  /* Allow specific colors for headings */
+  h1, h2, h3, h4, h5, h6,
+  .text-primary,
+  .heading,
+  strong {
+    color: #000000 !important;
+  }
+
+  /* Preserve link colors if needed */
+  a,
+  .text-link {
+    color: #0066cc !important;
+  }
+
+  /* Muted text */
+  .text-muted,
+  .text-secondary,
+  .subtitle {
+    color: #666666 !important;
+  }
+
+  /* ===== Tables ===== */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    page-break-inside: avoid;
+  }
+
+  th {
+    font-weight: bold;
+    text-align: left;
+    border-bottom: 1pt solid #000000;
+    padding: 4pt;
+  }
+
+  td {
+    padding: 4pt;
+    border-bottom: 0.5pt solid #cccccc;
+  }
+
+  /* ===== Borders ===== */
+  .border,
+  .border-top,
+  .border-bottom {
+    border-color: #000000 !important;
+  }
+
+  hr {
+    border-color: #000000;
+    page-break-after: avoid;
+  }
+
+  /* ===== Images ===== */
+  img {
+    max-width: 100% !important;
+    height: auto !important;
+    page-break-inside: avoid;
+  }
+
+  /* Profile photo */
+  .profile-photo,
+  .avatar {
+    width: 1in;
+    height: 1in;
+    border-radius: 0;
+  }
+
+  /* ===== Lists ===== */
+  ul {
+    list-style-type: disc;
+    padding-left: 20pt;
+  }
+
+  ol {
+    list-style-type: decimal;
+    padding-left: 20pt;
+  }
+
+  /* ===== Resume-Specific Styles ===== */
+
+  /* Resume header */
+  .resume-header {
+    text-align: center;
+    margin-bottom: 12pt;
+    page-break-after: avoid;
+  }
+
+  .resume-name {
+    font-size: 28pt;
+    font-weight: bold;
+    margin-bottom: 6pt;
+  }
+
+  .resume-contact {
+    font-size: 10pt;
+    color: #666666;
+  }
+
+  /* Resume sections */
+  .resume-section {
+    margin-bottom: 12pt;
+  }
+
+  .resume-section-title {
+    font-size: 14pt;
+    font-weight: bold;
+    text-transform: uppercase;
+    border-bottom: 1pt solid #000000;
+    padding-bottom: 3pt;
+    margin-bottom: 8pt;
+    page-break-after: avoid;
+  }
+
+  /* Experience/Education entries */
+  .resume-entry {
+    margin-bottom: 10pt;
+    page-break-inside: avoid;
+  }
+
+  .entry-header,
+  .resume-entry-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 4pt;
+  }
+
+  .entry-title,
+  .resume-entry-title {
+    font-weight: bold;
+    font-size: 11pt;
+  }
+
+  .entry-company,
+  .entry-school,
+  .resume-entry-company,
+  .resume-entry-school {
+    font-style: italic;
+    color: #333333;
+  }
+
+  .entry-date,
+  .resume-entry-date {
+    color: #666666;
+    font-size: 10pt;
+  }
+
+  .entry-location,
+  .resume-entry-location {
+    color: #666666;
+    font-size: 10pt;
+  }
+
+  /* Bullet points */
+  .resume-entry ul {
+    margin-top: 4pt;
+    margin-bottom: 0;
+  }
+
+  .resume-entry li {
+    margin-bottom: 2pt;
+    line-height: 1.3;
+  }
+
+  /* Skills */
+  .skill-category {
+    margin-bottom: 6pt;
+  }
+
+  .skill-category-name {
+    font-weight: bold;
+    display: inline;
+  }
+
+  .skill-list {
+    display: inline;
+    list-style: none;
+    padding: 0;
+  }
+
+  .skill-item {
+    display: inline;
+  }
+
+  .skill-item::after {
+    content: ", ";
+  }
+
+  .skill-item:last-child::after {
+    content: "";
+  }
+
+  /* ===== Two-Column Layout Support ===== */
+  .print-two-column {
+    column-count: 2;
+    column-gap: 0.25in;
+    column-rule: none;
+  }
+
+  /* ===== Text Selection ===== */
+  ::selection {
+    background: transparent;
+  }
+
+  /* ===== Badges/Tags ===== */
+  .badge,
+  .tag {
+    border: 0.5pt solid #000000;
+    padding: 1pt 3pt;
+    font-size: 9pt;
+    background-color: transparent !important;
+    color: #000000 !important;
+  }
+
+  /* ===== QR Code / Barcodes ===== */
+  .qr-code,
+  .barcode {
+    page-break-inside: avoid;
+    background: white !important;
+  }
+
+  /* ===== Utility Classes ===== */
+  .print-only {
+    display: block !important;
+  }
+
+  .screen-only {
+    display: none !important;
+  }
+
+  /* ===== Prevent Clipping ===== */
+  * {
+    overflow: visible !important;
+    clip: auto !important;
+    clip-path: none !important;
+  }
+
+  /* ===== Footer/Header Margins for Page Numbers ===== */
+  @page {
+    @bottom-right {
+      content: counter(page) " of " counter(pages);
+      font-size: 9pt;
+      color: #666666;
+    }
+  }
+
+  /* Disable page numbers if not wanted */
+  .no-page-numbers {
+    @page {
+      @bottom-right {
+        content: none;
+      }
+    }
+  }
+
+  /* ===== Specific Resume Formats ===== */
+
+  /* Traditional/Classic format */
+  .format-traditional {
+    font-family: "Times New Roman", Times, serif;
+  }
+
+  .format-traditional .resume-section-title {
+    font-variant: small-caps;
+    letter-spacing: 0.05em;
+  }
+
+  /* Modern format */
+  .format-modern {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  }
+
+  /* Compact format - tighter spacing */
+  .format-compact {
+    line-height: 1.2;
+  }
+
+  .format-compact p,
+  .format-compact li {
+    margin-bottom: 3pt;
+  }
+
+  .format-compact .resume-section {
+    margin-bottom: 8pt;
+  }
+
+  /* ===== Accessibility ===== */
+
+  /* Ensure sufficient contrast */
+  abbr[title]::after {
+    content: " (" attr(title) ")";
+    font-size: 9pt;
+  }
+
+  /* ===== Fix Common Print Issues ===== */
+
+  /* Prevent blank pages */
+  .resume-document:last-child {
+    page-break-after: avoid;
+  }
+
+  /* Ensure content fills page */
+  html {
+    height: 100%;
+  }
+
+  body {
+    min-height: 100%;
+  }
+
+  /* Fix flexbox in print */
+  .d-flex,
+  .flex-row,
+  .flex-col {
+    display: block !important;
+  }
+
+  /* Fix grid in print */
+  .d-grid,
+  .grid,
+  [class*="grid-cols"] {
+    display: block !important;
+  }
+
+  /* ===== Print Messages ===== */
+  .print-message {
+    display: block;
+    padding: 12pt;
+    margin: 12pt 0;
+    border: 1pt solid #000000;
+    background-color: #f0f0f0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}
+
+/* ===== Screen-Only Print Preparation ===== */
+@media screen {
+  .print-preview {
+    background-color: #525659;
+    padding: var(--space-6);
+  }
+
+  .print-preview .preview-paper {
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.05), 0 2px 8px rgba(0, 0, 0, 0.1);
+  }
+}

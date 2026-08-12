@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Skills Matrix Analyzer Tests</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 2rem; max-width: 900px; margin: 0 auto; background: #f8fafc; }
+    h1 { font-size: 1.5rem; color: #1e293b; margin-bottom: 0.5rem; }
+    h2 { font-size: 1.1rem; color: #475569; margin-top: 1.5rem; }
+    .test { padding: 0.5rem 0.75rem; margin: 0.25rem 0; border-radius: 6px; font-size: 0.8125rem; }
+    .pass { background: #d1fae5; color: #065f46; }
+    .fail { background: #fee2e2; color: #991b1b; }
+    .summary { margin-top: 1.5rem; padding: 1rem; border-radius: 8px; font-weight: 600; }
+    .all-pass { background: #d1fae5; color: #065f46; }
+    .has-fail { background: #fee2e2; color: #991b1b; }
+  </style>
+</head>
+<body>
+  <h1>Skills Matrix Analyzer — Automated Tests</h1>
+  <div id="results"></div>
+  <div id="summary"></div>
+
+  <script type="module">
+    const results = document.getElementById('results');
+    const summaryEl = document.getElementById('summary');
+    let passed = 0, failed = 0;
+
+    function log(name, success, detail = '') {
+      const div = document.createElement('div');
+      div.className = `test ${success ? 'pass' : 'fail'}`;
+      div.textContent = `${success ? '✓' : '✗'} ${name}${detail ? ' — ' + detail : ''}`;
+      results.appendChild(div);
+      if (success) passed++; else failed++;
+    }
+
+    function section(title) {
+      const h2 = document.createElement('h2');
+      h2.textContent = title;
+      results.appendChild(h2);
+    }
+
+    async function runTests() {
+      const { SkillsMatrixAnalyzer } = await import('../src/js/modules/skills-matrix-analyzer.js');
+      const { STRENGTH_LEVELS, SKILL_STATUSES } = await import('../src/js/modules/skills-matrix-data.js');
+      const analyzer = new SkillsMatrixAnalyzer();
+
+      // Sample resume matching the app's actual document schema
+      const sampleDoc = {
+        id: 'test-resume-1',
+        name: 'Test Resume',
+        type: 'resume',
+        lastModified: new Date().toISOString(),
+        personalInfo: {
+          fullName: 'Test User',
+          professionalTitle: 'Senior Software Engineer',
+          resumeHeadline: 'Full-Stack Engineer with 8+ Years Building Scalable Web Applications'
+        },
+        sections: [
+          {
+            id: 'sec-summary', sectionType: 'summary', type: 'text', title: 'Professional Summary',
+            visible: true, content: 'Results-driven Senior Software Engineer with 8+ years of experience in JavaScript, TypeScript, Python, and cloud infrastructure.',
+            items: []
+          },
+          {
+            id: 'sec-exp', sectionType: 'experience', type: 'list', title: 'Work Experience',
+            visible: true, content: '',
+            items: [
+              {
+                id: 'job-1', jobTitle: 'Senior Software Engineer', company: 'Horizon Tech',
+                startMonth: 'March', startYear: '2021', currentlyWorking: true,
+                roleSummary: 'Lead engineer on the platform team.',
+                achievements: [
+                  { id: 'ach-1', text: 'Architected microservices migration reducing API response times by 40%', skillTags: ['Microservices', 'API Design'] },
+                  { id: 'ach-2', text: 'Led team of 6 engineers building real-time pipeline with Kafka and Redis', skillTags: ['Kafka', 'Redis', 'Leadership'] }
+                ],
+                technologies: ['TypeScript', 'Node.js', 'React', 'PostgreSQL', 'Docker', 'Kubernetes', 'AWS'],
+                included: true, hidden: false
+              },
+              {
+                id: 'job-2', jobTitle: 'Software Engineer II', company: 'DataFlow Inc.',
+                startMonth: 'June', startYear: '2018', endMonth: 'February', endYear: '2021',
+                achievements: [
+                  { id: 'ach-3', text: 'Built interactive dashboard used by 50,000+ users with React and D3.js', skillTags: ['React', 'D3.js'] },
+                  { id: 'ach-4', text: 'Optimized PostgreSQL query performance from 12s to 800ms', skillTags: ['PostgreSQL', 'SQL'] }
+                ],
+                technologies: ['JavaScript', 'React', 'Python', 'Django', 'PostgreSQL', 'D3.js'],
+                included: true, hidden: false
+              }
+            ]
+          },
+          {
+            id: 'sec-skills', sectionType: 'skills', type: 'list', title: 'Technical Skills',
+            visible: true, content: '',
+            items: [
+              { id: 'sk-1', category: 'Languages', skills: 'JavaScript, TypeScript, Python, Go, SQL', included: true },
+              { id: 'sk-2', category: 'Frontend', skills: 'React, Next.js, D3.js', included: true },
+              { id: 'sk-3', category: 'Backend', skills: 'Node.js, Express, Django', included: true },
+              { id: 'sk-4', category: 'Cloud & DevOps', skills: 'AWS, Docker, Kubernetes, CI/CD', included: true }
+            ]
+          },
+          {
+            id: 'sec-edu', sectionType: 'education', type: 'list', title: 'Education',
+            visible: true, content: '',
+            items: [
+              {
+                id: 'edu-1', degree: 'Bachelor of Science', qualification: 'Computer Science',
+                institution: 'University of Washington', startDate: '2012', endDate: '2016',
+                relevantCoursework: 'Data Structures, Algorithms, Database Systems, Machine Learning'
+              }
+            ]
+          },
+          {
+            id: 'sec-proj', sectionType: 'projects', type: 'list', title: 'Projects',
+            visible: true, content: '',
+            items: [
+              {
+                id: 'proj-1', projectName: 'OpenMetrics Dashboard', role: 'Creator',
+                technologies: ['React', 'TypeScript', 'WebSocket', 'D3.js'],
+                summary: 'Open-source real-time metrics visualization platform',
+                results: '2,500+ GitHub stars, adopted by 50+ companies',
+                startDate: '2022', currentProject: true
+              }
+            ]
+          },
+          {
+            id: 'sec-cert', sectionType: 'certifications', type: 'list', title: 'Certifications',
+            visible: true, content: '',
+            items: [
+              { id: 'cert-1', name: 'AWS Solutions Architect - Associate', issuer: 'Amazon Web Services', date: '2023', expiryDate: '2026' },
+              { id: 'cert-2', name: 'Certified Kubernetes Administrator', issuer: 'CNCF', date: '2022' }
+            ]
+          },
+          {
+            id: 'sec-vol', sectionType: 'volunteer', type: 'list', title: 'Volunteer',
+            visible: false, content: '',
+            items: [
+              { id: 'vol-1', role: 'Lead Instructor', organization: 'Code for Change', description: 'Teach web development with HTML, CSS, and JavaScript.' }
+            ]
+          }
+        ]
+      };
+
+      // ==================== NORMALIZATION TESTS ====================
+      section('Step 4: Skill Normalization');
+
+      log('normalizeText basic', analyzer.normalizeText('  JavaScript  ') === 'javascript');
+      log('normalizeText unicode', analyzer.normalizeText('café') === 'cafe');
+      log('getCanonicalName JS → JavaScript', analyzer.getCanonicalName('JS') === 'javascript');
+      log('getCanonicalName TS → TypeScript', analyzer.getCanonicalName('TS') === 'typescript');
+      log('getCanonicalName AWS', analyzer.getCanonicalName('AWS') === 'amazon web services');
+      log('getCanonicalName K8s → Kubernetes', analyzer.getCanonicalName('K8s') === 'kubernetes');
+      log('getCanonicalName preserves unknown', analyzer.getCanonicalName('MyCustomSkill') === 'MyCustomSkill');
+
+      // Skill symbols
+      log('C++ preserved', analyzer.getCanonicalName('C++') === 'c++');
+      log('C# preserved', analyzer.getCanonicalName('C#') === 'c#');
+      log('.NET preserved', analyzer.getCanonicalName('.NET') === '.net');
+      log('CI/CD normalized', analyzer.getCanonicalName('CI/CD') === 'ci/cd');
+      log('Node.js from nodejs', analyzer.getCanonicalName('nodejs') === 'node.js');
+
+      // ==================== CATEGORY TESTS ====================
+      section('Step 5: Skill Category System');
+
+      log('JavaScript is Programming Language', analyzer.categorizeSkill('javascript') === 'Programming Language');
+      log('React is Framework', analyzer.categorizeSkill('react') === 'Framework');
+      log('PostgreSQL is Database', analyzer.categorizeSkill('postgresql') === 'Database');
+      log('Docker is DevOps Tool', analyzer.categorizeSkill('docker') === 'DevOps Tool');
+      log('AWS is Cloud Platform', analyzer.categorizeSkill('amazon web services') === 'Cloud Platform');
+      log('Leadership is Leadership Skill', analyzer.categorizeSkill('leadership') === 'Leadership Skill');
+      log('Agile is Methodology', analyzer.categorizeSkill('agile') === 'Methodology');
+      log('Unknown → Uncategorized', analyzer.categorizeSkill('SomeObscureThing') === 'Uncategorized');
+
+      // ==================== EXTRACTION TESTS ====================
+      section('Step 3: Content Extraction');
+
+      const sections = analyzer.extractContentFromDocument(sampleDoc);
+      log('Extracts sections', sections.length > 0, `Found ${sections.length} sections`);
+      log('Has personalInfo', sections.some(s => s.sectionType === 'personalInfo'));
+      log('Has summary', sections.some(s => s.sectionType === 'summary'));
+      log('Has experience', sections.some(s => s.sectionType === 'experience'));
+      log('Has skills', sections.some(s => s.sectionType === 'skills'));
+      log('Has education', sections.some(s => s.sectionType === 'education'));
+      log('Has projects', sections.some(s => s.sectionType === 'projects'));
+      log('Has certifications', sections.some(s => s.sectionType === 'certifications'));
+
+      // Test empty document
+      const emptyDoc = { id: 'empty', name: 'Empty', personalInfo: {}, sections: [] };
+      const emptySections = analyzer.extractContentFromDocument(emptyDoc);
+      log('Empty doc returns no sections', emptySections.length === 0);
+
+      // Test null document
+      const nullSections = analyzer.extractContentFromDocument(null);
+      log('Null doc returns empty array', nullSections.length === 0);
+
+      // Date extraction
+      const expSection = sections.find(s => s.sectionType === 'experience');
+      if (expSection && expSection.entries.length > 0) {
+        const firstEntry = expSection.entries[0];
+        log('Date range extracted', firstEntry.dateRange !== null, JSON.stringify(firstEntry.dateRange));
+        if (firstEntry.dateRange) {
+          log('Start year correct', firstEntry.dateRange.start?.year === 2021);
+          log('Current job detected', firstEntry.dateRange.end?.current === true);
+        }
+      }
+
+      // Hidden section
+      const volSection = sections.find(s => s.sectionType === 'volunteer');
+      if (volSection) {
+        log('Hidden section entries marked', volSection.entries.every(e => e.hidden === true));
+      }
+
+      // ==================== SKILL EXTRACTION TESTS ====================
+      section('Step 6: Skill & Evidence Extraction');
+
+      const skillMap = analyzer.extractSkillsFromDocument(sampleDoc, sections);
+      log('Skills extracted', skillMap.size > 0, `Found ${skillMap.size} skills`);
+
+      const jsSkill = [...skillMap.values()].find(s => s.displayName.toLowerCase() === 'javascript');
+      log('JavaScript found', !!jsSkill);
+      if (jsSkill) log('JavaScript listed in skills', jsSkill.listedInSkills === true);
+
+      const tsSkill = [...skillMap.values()].find(s => s.displayName.toLowerCase() === 'typescript');
+      log('TypeScript found', !!tsSkill);
+
+      const reactSkill = [...skillMap.values()].find(s => s.displayName.toLowerCase() === 'react');
+      log('React found', !!reactSkill);
+
+      const dockerSkill = [...skillMap.values()].find(s => s.displayName.toLowerCase() === 'docker');
+      log('Docker found', !!dockerSkill);
+
+      // ==================== EVIDENCE MATCHING TESTS ====================
+
+      const evidenceRecords = analyzer.findEvidenceForSkills(skillMap, sections);
+      log('Evidence records created', evidenceRecords.length > 0, `Found ${evidenceRecords.length} evidence records`);
+
+      // React should have evidence from multiple sections
+      if (reactSkill) {
+        const reactEvidence = evidenceRecords.filter(e => e.skillId === reactSkill.id);
+        log('React has multiple evidence', reactEvidence.length >= 2, `${reactEvidence.length} evidence records`);
+        const hasExperience = reactEvidence.some(e => e.evidenceType === 'experience_usage');
+        log('React has experience evidence', hasExperience);
+        const hasProject = reactEvidence.some(e => e.evidenceType === 'project_evidence');
+        log('React has project evidence', hasProject);
+      }
+
+      // ==================== STRENGTH ASSESSMENT TESTS ====================
+      section('Step 7: Evidence Strength Analysis');
+
+      const fullResult = analyzer.analyze(sampleDoc);
+      log('Analysis returns results', !!fullResult);
+      log('Has skills array', Array.isArray(fullResult.skills));
+      log('Has summary', !!fullResult.summary);
+      log('Has fingerprint', !!fullResult.resumeFingerprint);
+      log('Has analyzedAt', !!fullResult.analyzedAt);
+
+      if (fullResult.skills.length > 0) {
+        const strongSkills = fullResult.skills.filter(s => s.strength === 'strong');
+        const moderateSkills = fullResult.skills.filter(s => s.strength === 'moderate');
+        const limitedSkills = fullResult.skills.filter(s => s.strength === 'limited');
+        const listedOnly = fullResult.skills.filter(s => s.strength === 'listed_only');
+
+        log('Has strength distribution', strongSkills.length + moderateSkills.length + limitedSkills.length + listedOnly.length > 0,
+          `Strong: ${strongSkills.length}, Moderate: ${moderateSkills.length}, Limited: ${limitedSkills.length}, Listed: ${listedOnly.length}`);
+
+        // React should be strong (multiple sections, achievements, metrics, recent)
+        const reactResult = fullResult.skills.find(s => s.displayName.toLowerCase() === 'react');
+        if (reactResult) {
+          log('React has good strength', ['strong', 'moderate'].includes(reactResult.strength), `Strength: ${reactResult.strength}`);
+          log('React has status reasons', reactResult.statusReasons.length > 0);
+        }
+
+        // Go may be listed-only (in skills but no evidence)
+        const goResult = fullResult.skills.find(s => s.displayName.toLowerCase() === 'go');
+        if (goResult) {
+          log('Go is listed only', goResult.strength === 'listed_only', `Strength: ${goResult.strength}`);
+        }
+
+        // Summary counts
+        log('Summary total matches skills', fullResult.summary.total === fullResult.skills.length);
+        log('Summary has categories', fullResult.summary.categories.length > 0);
+      }
+
+      // ==================== EDGE CASES ====================
+      section('Edge Cases');
+
+      // Empty skills section
+      const noSkillsDoc = { id: 'noskills', name: 'No Skills', personalInfo: {}, sections: [
+        { id: 's1', sectionType: 'experience', type: 'list', title: 'Experience', visible: true, items: [
+          { id: 'j1', jobTitle: 'Developer', technologies: ['Python', 'Django'], achievements: [] }
+        ]}
+      ]};
+      const noSkillsResult = analyzer.analyze(noSkillsDoc);
+      log('No skills section — skills from content', noSkillsResult.skills.length > 0, `Found ${noSkillsResult.skills.length}`);
+      log('Skills marked as not listed', noSkillsResult.skills.every(s => s.listedInSkills === false));
+
+      // Malformed data
+      const malformedDoc = { id: 'bad', name: 'Bad', personalInfo: null, sections: [null, undefined, { id: 'x' }] };
+      try {
+        const malResult = analyzer.analyze(malformedDoc);
+        log('Handles malformed doc', true, `Skills: ${malResult.skills.length}`);
+      } catch (e) {
+        log('Handles malformed doc', false, e.message);
+      }
+
+      // XSS in content
+      const xssDoc = { id: 'xss', name: 'XSS Test', personalInfo: { professionalTitle: '<script>alert("xss")</script>Developer' }, sections: [
+        { id: 's1', sectionType: 'skills', type: 'list', title: 'Skills', visible: true, items: [
+          { id: 'sk1', skills: '<img onerror=alert(1) src=x>JavaScript, Python' }
+        ]}
+      ]};
+      const xssResult = analyzer.analyze(xssDoc);
+      log('XSS stripped from skills', xssResult.skills.some(s => s.displayName.toLowerCase().includes('javascript')));
+      log('No script tags in results', !JSON.stringify(xssResult).includes('<script>'));
+
+      // Summary
+      summaryEl.className = `summary ${failed === 0 ? 'all-pass' : 'has-fail'}`;
+      summaryEl.textContent = `${passed} passed, ${failed} failed out of ${passed + failed} tests`;
+    }
+
+    runTests().catch(e => {
+      console.error(e);
+      summaryEl.className = 'summary has-fail';
+      summaryEl.textContent = `Tests failed to run: ${e.message}`;
+    });
+  </script>
+</body>
+</html>

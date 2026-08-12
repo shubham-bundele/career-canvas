@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Template Studio Tests</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; background: #f8fafc; }
+    .test { padding: 8px 12px; margin: 4px 0; border-radius: 6px; font-size: 14px; }
+    .pass { background: #dcfce7; color: #166534; }
+    .fail { background: #fee2e2; color: #991b1b; }
+    .info { background: #dbeafe; color: #1e40af; }
+    h1 { font-size: 1.5rem; margin-bottom: 16px; }
+    #results { max-width: 800px; }
+  </style>
+</head>
+<body>
+  <h1>Template Studio Integration Tests</h1>
+  <div id="results"></div>
+
+  <script type="module">
+    import { TemplateEngine } from '../src/js/core/template-engine.js';
+    import { registerAllTemplates, allTemplates, templateStats } from '../src/js/templates/index.js';
+    import { TemplateGallery } from '../src/js/modules/template-gallery.js';
+    import { sampleResumeData, sampleCoverLetterData, sampleReferenceData } from '../src/js/data/sample-data.js';
+
+    const results = document.getElementById('results');
+    let passed = 0;
+    let failed = 0;
+
+    function log(msg, type = 'info') {
+      const div = document.createElement('div');
+      div.className = `test ${type}`;
+      div.textContent = msg;
+      results.appendChild(div);
+      if (type === 'pass') passed++;
+      if (type === 'fail') failed++;
+    }
+
+    function assert(condition, passMsg, failMsg) {
+      if (condition) {
+        log(`PASS: ${passMsg}`, 'pass');
+      } else {
+        log(`FAIL: ${failMsg}`, 'fail');
+      }
+    }
+
+    // Test 1: Template registration
+    const engine = new TemplateEngine();
+    registerAllTemplates(engine);
+    const all = engine.getAll();
+
+    assert(all.length > 0, `${all.length} templates registered`, 'No templates registered');
+    log(`Template stats: ATS=${templateStats.ats}, Professional=${templateStats.professional}, Technical=${templateStats.technical}, Creative=${templateStats.creative}, Cover Letter=${templateStats.coverLetter}, References=${templateStats.references}, Total=${templateStats.total}`);
+
+    // Test 2: Every template has a render function
+    let allHaveRender = true;
+    all.forEach(t => {
+      if (typeof t.render !== 'function') {
+        allHaveRender = false;
+        log(`FAIL: Template ${t.id} missing render function`, 'fail');
+      }
+    });
+    assert(allHaveRender, 'All templates have render functions', 'Some templates missing render');
+
+    // Test 3: Every template renders with sample data without throwing
+    let renderErrors = [];
+    all.forEach(t => {
+      try {
+        let sample;
+        if (t.docTypes && t.docTypes.includes('cover-letter')) {
+          sample = sampleCoverLetterData;
+        } else if (t.docTypes && t.docTypes.includes('references')) {
+          sample = sampleReferenceData;
+        } else {
+          // Normalize skills for resume data
+          const clone = JSON.parse(JSON.stringify(sampleResumeData));
+          for (const section of clone.sections) {
+            if (!section.items) section.items = [];
+            const st = section.type || '';
+            if ((st.includes('ummary') || st.includes('bjective')) && section.content && section.items.length === 0) {
+              section.items.push({ id: 'auto-1', content: section.content, included: true });
+            }
+            for (const item of section.items) {
+              if (item.skills && typeof item.skills === 'string') {
+                item.skills = item.skills.split(',').map(s => s.trim()).filter(Boolean);
+              }
+              if (item.achievements && Array.isArray(item.achievements)) {
+                item.highlights = item.achievements.map(a => typeof a === 'string' ? a : (a && a.text ? a.text : '')).filter(Boolean);
+              }
+            }
+          }
+          sample = clone;
+        }
+        const html = engine.render(t.id, sample, {});
+        assert(html && html.length > 50, `${t.id} renders (${html.length} chars)`, `${t.id} render returned empty`);
+      } catch (err) {
+        renderErrors.push(t.id);
+        log(`FAIL: ${t.id} render threw: ${err.message}`, 'fail');
+      }
+    });
+
+    if (renderErrors.length === 0) {
+      log(`All ${all.length} templates render successfully with sample data`, 'pass');
+    }
+
+    // Test 4: TemplateGallery constructor accepts engine
+    const gallery = new TemplateGallery(engine, null, null);
+    assert(gallery.templateEngine === engine, 'Gallery stores passed templateEngine', 'Gallery did not store templateEngine');
+
+    // Test 5: Gallery render returns a DOM element
+    const el = gallery.render();
+    assert(el instanceof HTMLElement, 'Gallery render returns HTMLElement', 'Gallery render did not return HTMLElement');
+    assert(el.classList.contains('template-gallery-container'), 'Gallery has correct class', 'Gallery missing container class');
+
+    // Test 6: Gallery renders template cards
+    document.body.appendChild(el);
+    const cards = el.querySelectorAll('.template-gallery-card');
+    // Should show resume templates by default (not cover letters or references)
+    const resumeTemplates = all.filter(t => t.docTypes && (t.docTypes.includes('resume') || t.docTypes.includes('cv')));
+    assert(cards.length > 0, `${cards.length} template cards rendered`, 'No template cards rendered');
+
+    // Test 7: Cards have real rendered previews (not just placeholders)
+    const previewInners = el.querySelectorAll('.template-gallery-preview-inner');
+    let realPreviews = 0;
+    previewInners.forEach(inner => {
+      if (inner.querySelector('.resume-template, .cover-letter-template')) {
+        realPreviews++;
+      }
+    });
+    assert(realPreviews > 0, `${realPreviews} cards have real rendered previews`, 'No cards have real previews');
+
+    // Test 8: Filter functionality
+    gallery.activeFilters.add('atsLevelFriendly');
+    gallery.filterTemplates();
+    const atsCards = el.querySelectorAll('.template-gallery-card');
+    const atsTemplateCount = all.filter(t => t.atsLevel === 'high' && t.docTypes && (t.docTypes.includes('resume') || t.docTypes.includes('cv'))).length;
+    assert(atsCards.length === atsTemplateCount, `ATS filter shows ${atsCards.length} cards (expected ${atsTemplateCount})`, `ATS filter shows ${atsCards.length} (expected ${atsTemplateCount})`);
+
+    // Test 9: Search functionality
+    gallery.activeFilters.clear();
+    gallery.searchQuery = 'executive';
+    gallery.filterTemplates();
+    const searchCards = el.querySelectorAll('.template-gallery-card');
+    assert(searchCards.length > 0, `Search "executive" found ${searchCards.length} templates`, 'Search "executive" found 0 templates');
+
+    // Reset
+    gallery.searchQuery = '';
+    gallery.filterTemplates();
+
+    // Test 10: Doc type tabs
+    gallery.activeDocType = 'cover-letter';
+    gallery.filterTemplates();
+    const clCards = el.querySelectorAll('.template-gallery-card');
+    const clTemplateCount = all.filter(t => t.docTypes && t.docTypes.includes('cover-letter')).length;
+    assert(clCards.length === clTemplateCount, `Cover letter tab shows ${clCards.length} cards (expected ${clTemplateCount})`, `Cover letter tab shows ${clCards.length} (expected ${clTemplateCount})`);
+
+    // Test 11: All tab
+    gallery.activeDocType = 'all';
+    gallery.filterTemplates();
+    const allCards = el.querySelectorAll('.template-gallery-card');
+    assert(allCards.length === all.length, `All tab shows ${allCards.length} cards (total ${all.length})`, `All tab shows ${allCards.length} (expected ${all.length})`);
+
+    // Test 12: Favorites
+    gallery.toggleFavorite('ats-essential');
+    assert(gallery.isFavorite('ats-essential'), 'Favorite toggle works (add)', 'Favorite toggle failed');
+    gallery.toggleFavorite('ats-essential');
+    assert(!gallery.isFavorite('ats-essential'), 'Favorite toggle works (remove)', 'Favorite untoggle failed');
+
+    // Test 13: Cleanup
+    gallery.destroy();
+    assert(gallery.container === null, 'Gallery cleanup works', 'Gallery cleanup failed');
+
+    // Summary
+    log('');
+    log(`Results: ${passed} passed, ${failed} failed out of ${passed + failed} tests`, failed === 0 ? 'pass' : 'fail');
+  </script>
+</body>
+</html>

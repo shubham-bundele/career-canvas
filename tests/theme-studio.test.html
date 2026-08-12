@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Theme Studio - Test Suite</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 2rem; background: #f8fafc; }
+    h1 { color: #1e293b; font-size: 1.5rem; }
+    h2 { color: #334155; font-size: 1.125rem; margin-top: 1.5rem; }
+    .test { padding: 0.5rem 0.75rem; margin: 0.25rem 0; border-radius: 6px; font-size: 0.85rem; }
+    .pass { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
+    .fail { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+    .summary { margin-top: 1.5rem; padding: 1rem; background: #fff; border-radius: 8px; border: 1px solid #e2e8f0; }
+  </style>
+</head>
+<body>
+  <h1>Theme Studio - Test Suite</h1>
+  <div id="results"></div>
+  <div id="summary" class="summary"></div>
+
+  <script type="module">
+    const results = document.getElementById('results');
+    let passed = 0, failed = 0;
+
+    function log(name, ok, detail) {
+      const div = document.createElement('div');
+      div.className = ok ? 'test pass' : 'test fail';
+      div.textContent = ok ? `PASS: ${name}` : `FAIL: ${name} — ${detail || ''}`;
+      results.appendChild(div);
+      if (ok) passed++; else failed++;
+    }
+
+    function heading(text) {
+      const h = document.createElement('h2');
+      h.textContent = text;
+      results.appendChild(h);
+    }
+
+    async function run() {
+      // Setup mock ThemeEngine on window.CC
+      const { ThemeEngine } = await import('../src/js/core/theme-engine.js');
+      const engine = new ThemeEngine();
+      engine.init();
+      window.CC = window.CC || {};
+      window.CC.themeEngine = engine;
+      window.CC.toast = { show: () => {} };
+
+      const { ThemeStudio } = await import('../src/js/modules/theme-studio.js');
+      const mockDb = { getAll: async () => [], get: async () => null, put: async () => {} };
+
+      // ========= MODULE BASICS =========
+      heading('Module Basics');
+
+      try {
+        const ts = new ThemeStudio(mockDb, null);
+        const el = await ts.render();
+        log('Module renders without error', el instanceof HTMLElement);
+        ts.destroy();
+      } catch (e) { log('Module renders', false, e.message); }
+
+      try {
+        const ts = new ThemeStudio(mockDb, null);
+        const el = await ts.render();
+        log('Has aria-label', el.getAttribute('aria-label') === 'Theme Studio');
+        ts.destroy();
+      } catch (e) { log('aria-label', false, e.message); }
+
+      try {
+        const ts = new ThemeStudio(mockDb, null);
+        const el = await ts.render();
+        document.body.appendChild(el);
+        log('Title renders', !!el.querySelector('.ts-title'));
+        log('Description renders', !!el.querySelector('.ts-description'));
+        log('Search input exists', !!el.querySelector('.ts-search'));
+        log('Filter buttons exist', el.querySelectorAll('.ts-filter-btn').length > 0);
+        ts.destroy();
+      } catch (e) { log('UI elements', false, e.message); }
+
+      // ========= THEME GALLERY =========
+      heading('Theme Gallery');
+
+      try {
+        const ts = new ThemeStudio(mockDb, null);
+        const el = await ts.render();
+        document.body.appendChild(el);
+        const cards = el.querySelectorAll('.ts-card');
+        log('Theme cards render', cards.length >= 11, `Found ${cards.length} cards`);
+        ts.destroy();
+      } catch (e) { log('Theme cards', false, e.message); }
+
+      try {
+        const ts = new ThemeStudio(mockDb, null);
+        const el = await ts.render();
+        document.body.appendChild(el);
+        const activeCard = el.querySelector('.ts-card--active');
+        log('Active theme is highlighted', !!activeCard);
+        const badge = activeCard?.querySelector('.ts-active-badge');
+        log('Active theme has badge', !!badge);
+        ts.destroy();
+      } catch (e) { log('Active theme', false, e.message); }
+
+      try {
+        const ts = new ThemeStudio(mockDb, null);
+        const el = await ts.render();
+        document.body.appendChild(el);
+        const previews = el.querySelectorAll('.ts-card-preview');
+        log('Color previews render', previews.length >= 11);
+        ts.destroy();
+      } catch (e) { log('Color previews', false, e.message); }
+
+      // ========= SEARCH =========
+      heading('Search and Filter');
+
+      try {
+        const ts = new ThemeStudio(mockDb, null);
+        const el = await ts.render();
+        document.body.appendChild(el);
+        const search = el.querySelector('.ts-search');
+        search.value = 'midnight';
+        search.dispatchEvent(new Event('input'));
+        const cards = el.querySelectorAll('.ts-card');
+        log('Search filters results', cards.length === 1, `Found ${cards.length} for "midnight"`);
+        ts.destroy();
+      } catch (e) { log('Search', false, e.message); }
+
+      try {
+        const ts = new ThemeStudio(mockDb, null);
+        const el = await ts.render();
+        document.body.appendChild(el);
+        const darkFilter = [...el.querySelectorAll('.ts-filter-btn')].find(b => b.textContent === 'Dark');
+        if (darkFilter) darkFilter.click();
+        const cards = el.querySelectorAll('.ts-card');
+        log('Category filter works', cards.length >= 2, `Found ${cards.length} dark themes`);
+        ts.destroy();
+      } catch (e) { log('Filter', false, e.message); }
+
+      // ========= THEME ENGINE INTEGRATION =========
+      heading('Theme Engine Integration');
+
+      try {
+        const allThemes = engine.getAllThemes();
+        log('Engine has 11+ built-in themes', allThemes.length >= 11, `Found ${allThemes.length}`);
+      } catch (e) { log('Theme count', false, e.message); }
+
+      try {
+        const result = engine.applyTheme('ocean-breeze');
+        log('Apply theme returns true', result === true);
+        const current = engine.getCurrentThemeId();
+        log('Current theme updates', current === 'ocean-breeze');
+        engine.applyTheme('careercanvas-light'); // reset
+      } catch (e) { log('Apply theme', false, e.message); }
+
+      try {
+        engine.previewTheme('royal-purple');
+        log('Preview sets theme', engine.getCurrentThemeId() === 'royal-purple');
+        engine.cancelPreview();
+        log('Cancel preview restores', engine.getCurrentThemeId() !== 'royal-purple');
+      } catch (e) { log('Preview/cancel', false, e.message); }
+
+      try {
+        const custom = engine.createCustomTheme('Test Theme', 'careercanvas-light', { 'color-primary': '#ff0000' });
+        log('Create custom theme', !!custom && custom.id.startsWith('custom-'));
+        log('Custom theme has correct token', custom.tokens['color-primary'] === '#ff0000');
+        const exported = engine.exportTheme(custom.id);
+        log('Export custom theme', !!exported && exported.theme.name === 'Test Theme');
+        const dup = engine.duplicateCustomTheme(custom.id);
+        log('Duplicate custom theme', !!dup && dup.name.includes('Copy'));
+        engine.deleteCustomTheme(dup.id);
+        engine.deleteCustomTheme(custom.id);
+        log('Delete custom theme', !engine.getThemeById(custom.id));
+      } catch (e) { log('Custom theme CRUD', false, e.message); }
+
+      try {
+        const valid = engine.validateTheme({ tokens: {} });
+        log('Validate rejects incomplete theme', valid === false);
+        const validFull = engine.validateTheme(engine.getThemeById('careercanvas-light'));
+        log('Validate accepts complete theme', validFull === true);
+      } catch (e) { log('Validation', false, e.message); }
+
+      try {
+        const importData = engine.exportTheme('emerald-focus');
+        const imported = engine.importTheme(importData);
+        log('Import theme succeeds', !!imported && imported.id.startsWith('imported-'));
+        engine.deleteCustomTheme(imported.id);
+      } catch (e) { log('Import theme', false, e.message); }
+
+      try {
+        const malicious = { schemaVersion: 1, theme: { name: 'Evil', mode: 'light', tokens: { 'bg-primary': 'url(evil.js)' } } };
+        let caught = false;
+        try { engine.importTheme(malicious); } catch { caught = true; }
+        log('Import blocks unsafe values', caught);
+      } catch (e) { log('Security check', false, e.message); }
+
+      // ========= EDITOR =========
+      heading('Theme Editor');
+
+      try {
+        const ts = new ThemeStudio(mockDb, null);
+        const el = await ts.render();
+        document.body.appendChild(el);
+        ts.showEditor(null);
+        const editorTitle = el.querySelector('.ts-editor-title');
+        log('Editor opens for new theme', !!editorTitle && editorTitle.textContent.includes('Create'));
+        const colorInputs = el.querySelectorAll('.ts-color-input');
+        log('Color inputs render', colorInputs.length >= 10, `Found ${colorInputs.length}`);
+        const mockPreview = el.querySelector('.ts-preview-mock');
+        log('Preview mock renders', !!mockPreview);
+        ts.destroy();
+      } catch (e) { log('Editor', false, e.message); }
+
+      // ========= ROUTE CHECK =========
+      heading('Integration');
+
+      try {
+        const appSrc = await fetch('../src/js/app.js').then(r => r.text());
+        log('Route registered', appSrc.includes("'/theme-studio'"));
+        log('View case exists', appSrc.includes("case 'theme-studio'"));
+        log('Nav entry exists', appSrc.includes('Theme Studio'));
+      } catch (e) { log('Route/nav check', false, e.message); }
+
+      try {
+        const cssRes = await fetch('../src/css/theme-studio.css');
+        log('CSS file loads', cssRes.ok);
+      } catch (e) { log('CSS check', false, e.message); }
+
+      // ========= SUMMARY =========
+      const total = passed + failed;
+      document.getElementById('summary').innerHTML = `<strong>${passed}/${total} passed</strong>, ${failed} failed`;
+    }
+
+    run().catch(e => { document.getElementById('summary').textContent = 'Test suite crashed: ' + e.message; console.error(e); });
+  </script>
+</body>
+</html>

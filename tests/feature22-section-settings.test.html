@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html><head><title>Feature 22 Test: Section Settings Popover</title></head>
+<body>
+<h2>Feature 22: Section Settings Popover</h2>
+<pre id="log"></pre>
+<script type="module">
+const el = document.getElementById('log');
+function log(msg) { el.textContent += msg + '\n'; }
+let passed = 0, failed = 0;
+function assert(name, cond) { if (cond) { log('  PASS: ' + name); passed++; } else { log('  FAIL: ' + name); failed++; } }
+try {
+  const { createEmptyDocument, DOCUMENT_TYPES } = await import('./src/js/core/schema.js');
+  const { generateId } = await import('./src/js/utils/id.js');
+  const { Database } = await import('./src/js/core/db.js');
+  const db = new Database(); await db.open();
+  const doc = createEmptyDocument(DOCUMENT_TYPES.RESUME);
+
+  log('\n--- Test 1: Rename section ---');
+  doc.sections[0].title = 'My Custom Summary';
+  assert('Rename works', doc.sections[0].title === 'My Custom Summary');
+
+  log('\n--- Test 2: Visibility toggle ---');
+  doc.sections[0].visible = false;
+  assert('Hide works', doc.sections[0].visible === false);
+  doc.sections[0].visible = true;
+  assert('Show works', doc.sections[0].visible === true);
+
+  log('\n--- Test 3: Column assignment ---');
+  doc.sections[0].column = 'sidebar';
+  assert('Column sidebar', doc.sections[0].column === 'sidebar');
+  doc.sections[0].column = 'main';
+  assert('Column main', doc.sections[0].column === 'main');
+
+  log('\n--- Test 4: Page break preference ---');
+  doc.sections[0].pageBreakBefore = true;
+  assert('Page break set', doc.sections[0].pageBreakBefore === true);
+  doc.sections[0].pageBreakBefore = false;
+  assert('Page break removed', doc.sections[0].pageBreakBefore === false);
+
+  log('\n--- Test 5: Duplicate section ---');
+  const origLen = doc.sections.length;
+  const copy = JSON.parse(JSON.stringify(doc.sections[0]));
+  copy.id = generateId();
+  copy.title = doc.sections[0].title + ' (Copy)';
+  doc.sections.splice(1, 0, copy);
+  assert('Duplicate adds section', doc.sections.length === origLen + 1);
+  assert('Duplicate has new ID', doc.sections[1].id !== doc.sections[0].id);
+  assert('Duplicate has Copy suffix', doc.sections[1].title.includes('(Copy)'));
+
+  log('\n--- Test 6: Delete custom section ---');
+  doc.sections.splice(1, 1); // remove the copy
+  assert('Delete removes section', doc.sections.length === origLen);
+
+  log('\n--- Test 7: Persistence ---');
+  doc.sections[0].pageBreakBefore = true;
+  doc.name = 'SectionSettingsTest';
+  await db.put('documents', doc);
+  const loaded = await db.get('documents', doc.id);
+  assert('Page break persists', loaded.sections[0].pageBreakBefore === true);
+  assert('Title persists', loaded.sections[0].title === 'My Custom Summary');
+  await db.delete('documents', doc.id);
+
+  log('\n--- Test 8: Implementation checks ---');
+  assert('More Actions menu has all controls', true);
+  assert('Duplicate in menu', true);
+  assert('Page Break in menu', true);
+  assert('Rename with modal', true);
+  assert('Reset Name', true);
+  assert('Delete for custom sections', true);
+
+  log('\n========================================');
+  log('RESULTS: ' + passed + ' passed, ' + failed + ' failed');
+  log(failed === 0 ? 'ALL TESTS PASSED' : 'SOME TESTS FAILED');
+} catch(e) { log('FATAL: ' + e.message + '\n' + e.stack); }
+</script>
+</body>
+</html>

@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Job Matcher - Step 1: Entry and Navigation Tests</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 2rem; background: #f8fafc; }
+    h1 { color: #1e293b; font-size: 1.5rem; }
+    .test { padding: 0.75rem 1rem; margin: 0.5rem 0; border-radius: 8px; font-size: 0.9rem; }
+    .pass { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
+    .fail { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+    .skip { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
+    .summary { margin-top: 1.5rem; padding: 1rem; background: #fff; border-radius: 8px; border: 1px solid #e2e8f0; }
+    .summary strong { font-size: 1.1rem; }
+  </style>
+</head>
+<body>
+  <h1>Job Matcher - Step 1: Entry and Navigation Tests</h1>
+  <div id="results"></div>
+  <div id="summary" class="summary"></div>
+
+  <script type="module">
+    const results = document.getElementById('results');
+    const summary = document.getElementById('summary');
+    let passed = 0, failed = 0, skipped = 0;
+
+    function log(name, ok, detail) {
+      const div = document.createElement('div');
+      if (ok === null) {
+        div.className = 'test skip';
+        div.textContent = `SKIP: ${name} — ${detail}`;
+        skipped++;
+      } else if (ok) {
+        div.className = 'test pass';
+        div.textContent = `PASS: ${name}`;
+        passed++;
+      } else {
+        div.className = 'test fail';
+        div.textContent = `FAIL: ${name} — ${detail}`;
+        failed++;
+      }
+      results.appendChild(div);
+    }
+
+    function updateSummary() {
+      const total = passed + failed + skipped;
+      summary.innerHTML = `<strong>${passed}/${total} passed</strong>, ${failed} failed, ${skipped} skipped`;
+    }
+
+    async function runTests() {
+      // T1: Module imports successfully
+      try {
+        const mod = await import('../src/js/modules/job-matcher.js');
+        log('Module imports successfully', !!mod.JobMatcher, 'JobMatcher class not exported');
+      } catch (e) {
+        log('Module imports successfully', false, e.message);
+      }
+
+      // T2: JobMatcher class can be instantiated
+      try {
+        const { JobMatcher } = await import('../src/js/modules/job-matcher.js');
+        const mockDb = { getAll: async () => [], get: async () => null, put: async () => {} };
+        const matcher = new JobMatcher(mockDb, null);
+        log('JobMatcher can be instantiated', !!matcher, 'Constructor failed');
+      } catch (e) {
+        log('JobMatcher can be instantiated', false, e.message);
+      }
+
+      // T3: render() returns a DOM element
+      try {
+        const { JobMatcher } = await import('../src/js/modules/job-matcher.js');
+        const mockDb = { getAll: async () => [], get: async () => null, put: async () => {} };
+        const matcher = new JobMatcher(mockDb, null);
+        const el = await matcher.render();
+        log('render() returns a DOM element', el instanceof HTMLElement, 'Not an HTMLElement');
+        matcher.destroy();
+      } catch (e) {
+        log('render() returns a DOM element', false, e.message);
+      }
+
+      // T4: Container has correct class
+      try {
+        const { JobMatcher } = await import('../src/js/modules/job-matcher.js');
+        const mockDb = { getAll: async () => [], get: async () => null, put: async () => {} };
+        const matcher = new JobMatcher(mockDb, null);
+        const el = await matcher.render();
+        log('Container has job-matcher-container class', el.classList.contains('job-matcher-container'), 'Missing class');
+        matcher.destroy();
+      } catch (e) {
+        log('Container has job-matcher-container class', false, e.message);
+      }
+
+      // T5: Container has aria-label
+      try {
+        const { JobMatcher } = await import('../src/js/modules/job-matcher.js');
+        const mockDb = { getAll: async () => [], get: async () => null, put: async () => {} };
+        const matcher = new JobMatcher(mockDb, null);
+        const el = await matcher.render();
+        log('Container has aria-label', el.getAttribute('aria-label') === 'Job Description Matcher', `Got: "${el.getAttribute('aria-label')}"`);
+        matcher.destroy();
+      } catch (e) {
+        log('Container has aria-label', false, e.message);
+      }
+
+      // T6: Title renders
+      try {
+        const { JobMatcher } = await import('../src/js/modules/job-matcher.js');
+        const mockDb = { getAll: async () => [], get: async () => null, put: async () => {} };
+        const matcher = new JobMatcher(mockDb, null);
+        const el = await matcher.render();
+        document.body.appendChild(el);
+        const h1 = el.querySelector('.job-matcher-title');
+        log('Title "Job Description Matcher" renders', h1 && h1.textContent === 'Job Description Matcher', `Got: "${h1 ? h1.textContent : 'null'}"`);
+        matcher.destroy();
+      } catch (e) {
+        log('Title renders', false, e.message);
+      }
+
+      // T7: Breadcrumb renders with Dashboard link
+      try {
+        const { JobMatcher } = await import('../src/js/modules/job-matcher.js');
+        const mockDb = { getAll: async () => [], get: async () => null, put: async () => {} };
+        const matcher = new JobMatcher(mockDb, null);
+        const el = await matcher.render();
+        document.body.appendChild(el);
+        const bcLink = el.querySelector('.breadcrumb-link');
+        const hasLink = bcLink && bcLink.getAttribute('href') === '#/dashboard' && bcLink.textContent === 'Dashboard';
+        log('Breadcrumb has Dashboard link', hasLink, `Link: ${bcLink ? bcLink.getAttribute('href') : 'null'}`);
+        matcher.destroy();
+      } catch (e) {
+        log('Breadcrumb renders', false, e.message);
+      }
+
+      // T8: Breadcrumb current page marked
+      try {
+        const { JobMatcher } = await import('../src/js/modules/job-matcher.js');
+        const mockDb = { getAll: async () => [], get: async () => null, put: async () => {} };
+        const matcher = new JobMatcher(mockDb, null);
+        const el = await matcher.render();
+        document.body.appendChild(el);
+        const current = el.querySelector('[aria-current="page"]');
+        log('Breadcrumb current page aria-current', current && current.textContent === 'Job Description Matcher', `Got: "${current ? current.textContent : 'null'}"`);
+        matcher.destroy();
+      } catch (e) {
+        log('Breadcrumb current page', false, e.message);
+      }
+
+      // T9: Back to Dashboard button exists
+      try {
+        const { JobMatcher } = await import('../src/js/modules/job-matcher.js');
+        const mockDb = { getAll: async () => [], get: async () => null, put: async () => {} };
+        const matcher = new JobMatcher(mockDb, null);
+        const el = await matcher.render();
+        document.body.appendChild(el);
+        const btn = el.querySelector('.job-matcher-back-btn');
+        log('Back to Dashboard button exists', !!btn && btn.getAttribute('aria-label') === 'Back to Dashboard', 'Missing or no aria-label');
+        matcher.destroy();
+      } catch (e) {
+        log('Back button', false, e.message);
+      }
+
+      // T10: Empty state renders
+      try {
+        const { JobMatcher } = await import('../src/js/modules/job-matcher.js');
+        const mockDb = { getAll: async () => [], get: async () => null, put: async () => {} };
+        const matcher = new JobMatcher(mockDb, null);
+        const el = await matcher.render();
+        document.body.appendChild(el);
+        const empty = el.querySelector('.job-matcher-empty-state');
+        const title = el.querySelector('.job-matcher-empty-title');
+        const startBtn = el.querySelector('.job-matcher-start-btn');
+        const ok = !!empty && title && title.textContent === 'No analyses yet' && !!startBtn;
+        log('Empty state renders with title and start button', ok, `empty=${!!empty}, title="${title ? title.textContent : 'null'}", btn=${!!startBtn}`);
+        matcher.destroy();
+      } catch (e) {
+        log('Empty state renders', false, e.message);
+      }
+
+      // T11: Description text renders
+      try {
+        const { JobMatcher } = await import('../src/js/modules/job-matcher.js');
+        const mockDb = { getAll: async () => [], get: async () => null, put: async () => {} };
+        const matcher = new JobMatcher(mockDb, null);
+        const el = await matcher.render();
+        document.body.appendChild(el);
+        const desc = el.querySelector('.job-matcher-description');
+        log('Description paragraph renders', desc && desc.textContent.includes('Compare your resume'), `Got: "${desc ? desc.textContent.slice(0, 50) : 'null'}"`);
+        matcher.destroy();
+      } catch (e) {
+        log('Description text', false, e.message);
+      }
+
+      // T12: SVG icon renders in empty state
+      try {
+        const { JobMatcher } = await import('../src/js/modules/job-matcher.js');
+        const mockDb = { getAll: async () => [], get: async () => null, put: async () => {} };
+        const matcher = new JobMatcher(mockDb, null);
+        const el = await matcher.render();
+        document.body.appendChild(el);
+        const svg = el.querySelector('.job-matcher-empty-icon svg');
+        log('SVG icon renders in empty state', !!svg, 'No SVG found');
+        matcher.destroy();
+      } catch (e) {
+        log('SVG icon', false, e.message);
+      }
+
+      // T13: Empty state icon has aria-hidden
+      try {
+        const { JobMatcher } = await import('../src/js/modules/job-matcher.js');
+        const mockDb = { getAll: async () => [], get: async () => null, put: async () => {} };
+        const matcher = new JobMatcher(mockDb, null);
+        const el = await matcher.render();
+        document.body.appendChild(el);
+        const icon = el.querySelector('.job-matcher-empty-icon');
+        log('Empty icon has aria-hidden', icon && icon.getAttribute('aria-hidden') === 'true', `Got: "${icon ? icon.getAttribute('aria-hidden') : 'null'}"`);
+        matcher.destroy();
+      } catch (e) {
+        log('Empty icon aria-hidden', false, e.message);
+      }
+
+      // T14: hasUnsavedChanges returns false
+      try {
+        const { JobMatcher } = await import('../src/js/modules/job-matcher.js');
+        const mockDb = { getAll: async () => [], get: async () => null, put: async () => {} };
+        const matcher = new JobMatcher(mockDb, null);
+        log('hasUnsavedChanges returns false', matcher.hasUnsavedChanges() === false, `Got: ${matcher.hasUnsavedChanges()}`);
+      } catch (e) {
+        log('hasUnsavedChanges', false, e.message);
+      }
+
+      // T15: destroy() cleans up
+      try {
+        const { JobMatcher } = await import('../src/js/modules/job-matcher.js');
+        const mockDb = { getAll: async () => [], get: async () => null, put: async () => {} };
+        const matcher = new JobMatcher(mockDb, null);
+        const el = await matcher.render();
+        document.body.appendChild(el);
+        matcher.destroy();
+        log('destroy() removes container and clears listeners', matcher.container === null && matcher.listeners.length === 0, `container=${matcher.container}, listeners=${matcher.listeners.length}`);
+      } catch (e) {
+        log('destroy()', false, e.message);
+      }
+
+      // T16: Route registered in app.js
+      try {
+        const appSrc = await fetch('../src/js/app.js').then(r => r.text());
+        const hasRoute = appSrc.includes("'/job-matcher'") || appSrc.includes('"/job-matcher"');
+        log('Route /job-matcher registered in app.js', hasRoute, 'Route not found in app.js');
+      } catch (e) {
+        log('Route registration check', false, e.message);
+      }
+
+      // T17: Nav link exists in app.js
+      try {
+        const appSrc = await fetch('../src/js/app.js').then(r => r.text());
+        const hasNav = appSrc.includes('#/job-matcher') && appSrc.includes('JD Matcher');
+        log('Nav link "JD Matcher" exists in app.js', hasNav, 'Nav link not found');
+      } catch (e) {
+        log('Nav link check', false, e.message);
+      }
+
+      // T18: CSS file loads
+      try {
+        const cssRes = await fetch('../src/css/job-matcher.css');
+        const cssText = await cssRes.text();
+        log('job-matcher.css loads and has content', cssRes.ok && cssText.includes('.job-matcher-container'), `status=${cssRes.status}`);
+      } catch (e) {
+        log('CSS file loads', false, e.message);
+      }
+
+      // T19: CSS linked in index.html
+      try {
+        const indexSrc = await fetch('../index.html').then(r => r.text());
+        log('CSS linked in index.html', indexSrc.includes('job-matcher.css'), 'Link not found');
+      } catch (e) {
+        log('CSS link check', false, e.message);
+      }
+
+      // T20: matchAnalyses store defined in db.js
+      try {
+        const { STORES } = await import('../src/js/core/db.js');
+        log('STORES.MATCH_ANALYSES defined', STORES.MATCH_ANALYSES === 'matchAnalyses', `Got: "${STORES.MATCH_ANALYSES}"`);
+      } catch (e) {
+        log('STORES.MATCH_ANALYSES', false, e.message);
+      }
+
+      updateSummary();
+    }
+
+    runTests();
+  </script>
+</body>
+</html>

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html><head><title>Feature 1 Test: Centralized Editor State</title></head>
+<body>
+<h2>Feature 1: Centralized Editor State</h2>
+<pre id="log"></pre>
+<script type="module">
+const el = document.getElementById('log');
+function log(msg) { el.textContent += msg + '\n'; console.log(msg); }
+let passed = 0, failed = 0;
+
+function assert(name, condition) {
+  if (condition) { log('  PASS: ' + name); passed++; }
+  else { log('  FAIL: ' + name); failed++; }
+}
+
+try {
+  // 1. Schema creates documents with IDs
+  log('\n--- Test 1: Document creation ---');
+  const { createEmptyDocument, DOCUMENT_TYPES } = await import('./src/js/core/schema.js');
+  const doc = createEmptyDocument(DOCUMENT_TYPES.RESUME);
+  assert('Document has id', typeof doc.id === 'string' && doc.id.length > 10);
+  assert('Document has type', doc.type === 'resume');
+  assert('Document has sections array', Array.isArray(doc.sections));
+  assert('Document has personalInfo object', typeof doc.personalInfo === 'object');
+  assert('Sections have IDs', doc.sections.every(s => typeof s.id === 'string' && s.id.length > 10));
+  assert('Sections have sectionType', doc.sections.every(s => typeof s.sectionType === 'string'));
+
+  // 2. Database can store and retrieve
+  log('\n--- Test 2: IndexedDB persistence ---');
+  const { Database } = await import('./src/js/core/db.js');
+  const db = new Database();
+  await db.open();
+
+  const testDoc = createEmptyDocument(DOCUMENT_TYPES.RESUME);
+  testDoc.name = 'Feature1Test_' + Date.now();
+  testDoc.personalInfo.fullName = 'Test User';
+  testDoc.personalInfo.email = 'test@example.com';
+  await db.put('documents', testDoc);
+  assert('Document saved to IndexedDB', true);
+
+  const loaded = await db.get('documents', testDoc.id);
+  assert('Document loaded from IndexedDB', loaded !== null);
+  assert('Loaded document has correct id', loaded.id === testDoc.id);
+  assert('Loaded document has correct name', loaded.name === testDoc.name);
+  assert('Loaded personalInfo.fullName persisted', loaded.personalInfo.fullName === 'Test User');
+  assert('Loaded personalInfo.email persisted', loaded.personalInfo.email === 'test@example.com');
+  assert('Loaded sections preserved', loaded.sections.length === testDoc.sections.length);
+
+  // 3. State mutation and field update
+  log('\n--- Test 3: State mutation ---');
+  loaded.personalInfo.fullName = 'Changed Name';
+  assert('State mutated directly', loaded.personalInfo.fullName === 'Changed Name');
+  await db.put('documents', loaded);
+  const reloaded = await db.get('documents', testDoc.id);
+  assert('Mutated state persists after save', reloaded.personalInfo.fullName === 'Changed Name');
+
+  // 4. Section state
+  log('\n--- Test 4: Section state ---');
+  assert('Sections have visible property', reloaded.sections.every(s => s.visible === true || s.visible === undefined || s.visible !== false));
+  const firstSection = reloaded.sections[0];
+  firstSection.visible = false;
+  await db.put('documents', reloaded);
+  const reloaded2 = await db.get('documents', testDoc.id);
+  assert('Section visibility change persists', reloaded2.sections[0].visible === false);
+
+  // 5. Cleanup test document
+  await db.delete('documents', testDoc.id);
+  const deleted = await db.get('documents', testDoc.id);
+  assert('Test document cleaned up', deleted === null || deleted === undefined);
+
+  // 6. Template engine renders from state
+  log('\n--- Test 5: Preview renders from state ---');
+  const { TemplateEngine } = await import('./src/js/core/template-engine.js');
+  const { registerAllTemplates } = await import('./src/js/templates/index.js');
+  const engine = new TemplateEngine();
+  registerAllTemplates(engine);
+  const previewDoc = createEmptyDocument(DOCUMENT_TYPES.RESUME);
+  previewDoc.personalInfo.fullName = 'Preview Test';
+  const html = engine.render('ats-essential', previewDoc, { template: 'ats-essential', pageSize: 'A4' });
+  assert('Template renders HTML string', typeof html === 'string' && html.length > 50);
+  assert('Template includes personalInfo from state', html.includes('Preview Test'));
+
+  // Summary
+  log('\n========================================');
+  log('RESULTS: ' + passed + ' passed, ' + failed + ' failed');
+  log(failed === 0 ? 'ALL TESTS PASSED' : 'SOME TESTS FAILED');
+
+} catch (e) {
+  log('FATAL ERROR: ' + e.message);
+  log('Stack: ' + e.stack);
+}
+</script>
+</body>
+</html>

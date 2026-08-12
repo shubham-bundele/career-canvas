@@ -1,0 +1,373 @@
+/**
+ * CareerCanvas CSS Reset
+ * Modern CSS reset with accessibility considerations
+ */
+
+/* Box-sizing reset */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* Remove default margins and padding */
+* {
+  margin: 0;
+  padding: 0;
+}
+
+/* Set core root defaults */
+html {
+  -webkit-text-size-adjust: 100%;
+  -moz-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  font-size: 16px;
+  overflow-x: hidden;
+}
+
+body {
+  overflow-x: hidden;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+/* Prevent media overflow */
+img, video, svg, canvas {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Prevent form element overflow */
+input, select, textarea, button {
+  max-width: 100%;
+  font: inherit;
+}
+
+/* Prevent flex/grid children from overflowing */
+.d-flex > *, .d-grid > * {
+  min-width: 0;
+}
+
+html:focus-within {
+  scroll-behavior: smooth;
+}
+
+/* Respect user's motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  html:focus-within {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Body defaults */
+body {
+  min-height: 100vh;
+  line-height: 1.5;
+  text-rendering: optimizeSpeed;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Make images and media easier to work with */
+img,
+picture,
+video,
+canvas,
+svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+/* Ensure images don't overflow */
+img {
+  border-style: none;
+}
+
+/* SVG fallback for IE */
+svg:not(:root) {
+  overflow: hidden;
+}
+
+/* Inherit fonts for form controls */
+input,
+button,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+}
+
+/* Remove default button styles */
+button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+/* Improve button usability */
+button,
+[role="button"],
+[type="button"],
+[type="reset"],
+[type="submit"] {
+  cursor: pointer;
+  -webkit-appearance: button;
+}
+
+/* Remove spinner from number inputs */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* Remove default search input styling */
+input[type="search"] {
+  -webkit-appearance: textfield;
+  outline-offset: -2px;
+}
+
+input[type="search"]::-webkit-search-decoration {
+  -webkit-appearance: none;
+}
+
+/* File upload button */
+::-webkit-file-upload-button {
+  -webkit-appearance: button;
+  font: inherit;
+}
+
+/* Remove list styles where role="list" */
+ul[role="list"],
+ol[role="list"] {
+  list-style: none;
+}
+
+/* Accessible focus styles */
+:focus {
+  outline: 2px solid var(--border-focus, #1a56db);
+  outline-offset: 2px;
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--border-focus, #1a56db);
+  outline-offset: 2px;
+}
+
+/* Better focus for buttons */
+button:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid var(--border-focus, #1a56db);
+  outline-offset: 2px;
+}
+
+/* Remove default link underline in IE 10+ */
+a {
+  background-color: transparent;
+  text-decoration: none;
+}
+
+a:active,
+a:hover {
+  outline: 0;
+}
+
+/* Avoid text overflow */
+p,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+/* Remove hyphens for headings */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  hyphens: none;
+}
+
+/* Improve table rendering */
+table {
+  border-collapse: collapse;
+  border-spacing: 0;
+  width: 100%;
+}
+
+/* Remove border from iframe */
+iframe {
+  border: 0;
+}
+
+/* Improve consistency of default fonts */
+code,
+kbd,
+samp,
+pre {
+  font-family: var(--font-mono, monospace);
+  font-size: 1em;
+}
+
+/* Prevent sub and sup from affecting line height */
+sub,
+sup {
+  font-size: 75%;
+  line-height: 0;
+  position: relative;
+  vertical-align: baseline;
+}
+
+sub {
+  bottom: -0.25em;
+}
+
+sup {
+  top: -0.5em;
+}
+
+/* Improve abbreviation styling */
+abbr[title] {
+  border-bottom: none;
+  text-decoration: underline;
+  text-decoration: underline dotted;
+  cursor: help;
+}
+
+/* Improve strong and bold rendering */
+b,
+strong {
+  font-weight: bolder;
+}
+
+/* Small text */
+small {
+  font-size: 80%;
+}
+
+/* Address styling */
+address {
+  font-style: normal;
+}
+
+/* Blockquote */
+blockquote,
+q {
+  quotes: none;
+}
+
+blockquote::before,
+blockquote::after,
+q::before,
+q::after {
+  content: '';
+  content: none;
+}
+
+/* HR */
+hr {
+  box-sizing: content-box;
+  height: 0;
+  overflow: visible;
+  border: 0;
+  border-top: 1px solid var(--border-primary, #e2e8f0);
+  margin: 1.5rem 0;
+}
+
+/* Progress */
+progress {
+  vertical-align: baseline;
+}
+
+/* Hidden attribute */
+[hidden] {
+  display: none !important;
+}
+
+/* Disabled elements */
+[disabled] {
+  cursor: not-allowed;
+}
+
+/* Fieldset */
+fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+legend {
+  padding: 0;
+}
+
+/* Details and summary */
+details {
+  display: block;
+}
+
+summary {
+  display: list-item;
+  cursor: pointer;
+}
+
+/* Template */
+template {
+  display: none;
+}
+
+/* Prevent iOS text size adjust */
+textarea {
+  overflow: auto;
+  resize: vertical;
+}
+
+/* Remove default fieldset styles */
+fieldset {
+  min-width: 0;
+}
+
+/* Improve consistency of cursor throughout */
+[aria-busy="true"] {
+  cursor: progress;
+}
+
+[aria-disabled="true"],
+[disabled] {
+  cursor: not-allowed;
+}
+
+/* Draggable elements */
+[draggable="true"] {
+  cursor: move;
+  cursor: grab;
+}
+
+[draggable="true"]:active {
+  cursor: grabbing;
+}

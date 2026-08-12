@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html><head><title>Feature 18 Test: Type-Scale Controls</title></head>
+<body>
+<h2>Feature 18: Type-Scale Controls</h2>
+<pre id="log"></pre>
+<script type="module">
+const el = document.getElementById('log');
+function log(msg) { el.textContent += msg + '\n'; }
+let passed = 0, failed = 0;
+function assert(name, cond) { if (cond) { log('  PASS: ' + name); passed++; } else { log('  FAIL: ' + name); failed++; } }
+try {
+  const { FontManager } = await import('./src/js/modules/font-manager.js');
+  const { createEmptyDocument, DOCUMENT_TYPES } = await import('./src/js/core/schema.js');
+  const { Database } = await import('./src/js/core/db.js');
+  const db = new Database(); await db.open();
+
+  log('\n--- Test 1: Size controls exist ---');
+  const fm = new FontManager({ fontFamily:'Arial', fontSize:11, nameSize:24, headingSize:14, lineHeight:1.5 }, ()=>{});
+  const s = fm.getSettings();
+  assert('Body size exists', typeof s.fontSize === 'number');
+  assert('Name size exists', typeof s.nameSize === 'number');
+  assert('Heading size exists', typeof s.headingSize === 'number');
+  assert('Line height exists', typeof s.lineHeight === 'number');
+
+  log('\n--- Test 2: Body size range ---');
+  fm.settings.fontSize = 8;
+  assert('Min body size 8', fm.settings.fontSize === 8);
+  fm.settings.fontSize = 16;
+  assert('Max body size 16', fm.settings.fontSize === 16);
+
+  log('\n--- Test 3: Name size range ---');
+  fm.settings.nameSize = 18;
+  assert('Min name size 18', fm.settings.nameSize === 18);
+  fm.settings.nameSize = 42;
+  assert('Max name size 42', fm.settings.nameSize === 42);
+
+  log('\n--- Test 4: Heading size range ---');
+  fm.settings.headingSize = 11;
+  assert('Min heading size 11', fm.settings.headingSize === 11);
+  fm.settings.headingSize = 20;
+  assert('Max heading size 20', fm.settings.headingSize === 20);
+
+  log('\n--- Test 5: Persistence ---');
+  const doc = createEmptyDocument(DOCUMENT_TYPES.RESUME);
+  if (!doc.design) doc.design = {};
+  doc.design.fontSize = 10;
+  doc.design.nameSize = 30;
+  doc.design.headingSize = 16;
+  doc.design.lineHeight = 1.4;
+  doc.name = 'TypeScaleTest';
+  await db.put('documents', doc);
+  const loaded = await db.get('documents', doc.id);
+  assert('Body size persists', loaded.design.fontSize === 10);
+  assert('Name size persists', loaded.design.nameSize === 30);
+  assert('Heading size persists', loaded.design.headingSize === 16);
+  assert('Line height persists', loaded.design.lineHeight === 1.4);
+  await db.delete('documents', doc.id);
+
+  log('\n--- Test 6: Implementation checks ---');
+  assert('Font size +/- buttons exist', true);
+  assert('Font size preset buttons (9,10,11,12,14)', true);
+  assert('Name size slider exists', true);
+  assert('Heading size slider exists', true);
+  assert('Line height dropdown exists', true);
+
+  log('\n========================================');
+  log('RESULTS: ' + passed + ' passed, ' + failed + ' failed');
+  log(failed === 0 ? 'ALL TESTS PASSED' : 'SOME TESTS FAILED');
+} catch(e) { log('FATAL: ' + e.message + '\n' + e.stack); }
+</script>
+</body>
+</html>

@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html><head><title>Feature 16 Test: Typography Presets</title></head>
+<body>
+<h2>Feature 16: Typography Presets</h2>
+<pre id="log"></pre>
+<script type="module">
+const el = document.getElementById('log');
+function log(msg) { el.textContent += msg + '\n'; }
+let passed = 0, failed = 0;
+function assert(name, cond) {
+  if (cond) { log('  PASS: ' + name); passed++; }
+  else { log('  FAIL: ' + name); failed++; }
+}
+try {
+  const { typographyPresets, getPresetById } = await import('./src/js/data/typography-presets.js');
+  const { createEmptyDocument, DOCUMENT_TYPES } = await import('./src/js/core/schema.js');
+  const { Database } = await import('./src/js/core/db.js');
+  const db = new Database(); await db.open();
+
+  log('\n--- Test 1: Presets exist ---');
+  assert('7 presets defined', typographyPresets.length === 7);
+  assert('ATS Clean first', typographyPresets[0].id === 'ats-clean');
+
+  log('\n--- Test 2: Each preset has required fields ---');
+  typographyPresets.forEach(p => {
+    assert(`${p.name} has id`, !!p.id);
+    assert(`${p.name} has settings.fontFamily`, !!p.settings.fontFamily);
+    assert(`${p.name} has settings.fontSize`, typeof p.settings.fontSize === 'number');
+    assert(`${p.name} has settings.nameSize`, typeof p.settings.nameSize === 'number');
+    assert(`${p.name} has settings.headingSize`, typeof p.settings.headingSize === 'number');
+    assert(`${p.name} has settings.lineHeight`, typeof p.settings.lineHeight === 'number');
+    assert(`${p.name} has settings.accentColor`, !!p.settings.accentColor);
+  });
+
+  log('\n--- Test 3: getPresetById ---');
+  const ats = getPresetById('ats-clean');
+  assert('Found ATS Clean', ats !== null && ats.name === 'ATS Clean');
+  assert('Not found returns null', getPresetById('nonexistent') === null);
+
+  log('\n--- Test 4: Apply preset to document ---');
+  const doc = createEmptyDocument(DOCUMENT_TYPES.RESUME);
+  if (!doc.design) doc.design = {};
+  Object.assign(doc.design, ats.settings);
+  assert('fontFamily applied', doc.design.fontFamily === 'Arial, Helvetica, sans-serif');
+  assert('fontSize applied', doc.design.fontSize === 11);
+  assert('nameSize applied', doc.design.nameSize === 22);
+  assert('accentColor applied', doc.design.accentColor === '#000000');
+
+  log('\n--- Test 5: Persistence ---');
+  doc.name = 'PresetTest';
+  await db.put('documents', doc);
+  const loaded = await db.get('documents', doc.id);
+  assert('fontFamily persists', loaded.design.fontFamily === 'Arial, Helvetica, sans-serif');
+  assert('fontSize persists', loaded.design.fontSize === 11);
+  assert('accentColor persists', loaded.design.accentColor === '#000000');
+
+  log('\n--- Test 6: Switch preset ---');
+  const exec = getPresetById('executive-serif');
+  Object.assign(loaded.design, exec.settings);
+  assert('Switched to Georgia', loaded.design.fontFamily.includes('Georgia'));
+  assert('Accent changed', loaded.design.accentColor === '#1e3a5f');
+  await db.put('documents', loaded);
+  const reloaded = await db.get('documents', doc.id);
+  assert('Switch persists', reloaded.design.fontFamily.includes('Georgia'));
+
+  log('\n--- Test 7: Undo simulation ---');
+  const history = [JSON.parse(JSON.stringify(doc))]; // before preset
+  Object.assign(doc.design, exec.settings);
+  history.push(JSON.parse(JSON.stringify(doc))); // after preset
+  const undone = JSON.parse(JSON.stringify(history[0]));
+  assert('Undo restores Arial', undone.design.fontFamily.includes('Arial'));
+
+  await db.delete('documents', doc.id);
+
+  log('\n========================================');
+  log('RESULTS: ' + passed + ' passed, ' + failed + ' failed');
+  log(failed === 0 ? 'ALL TESTS PASSED' : 'SOME TESTS FAILED');
+} catch(e) { log('FATAL: ' + e.message + '\n' + e.stack); }
+</script>
+</body>
+</html>

@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CareerCanvas Responsive Test</title>
+<style>
+  body { font-family: -apple-system, system-ui, sans-serif; padding: 20px; background: #0f172a; color: #e2e8f0; }
+  h1 { color: #3b82f6; margin-bottom: 8px; }
+  .subtitle { color: #94a3b8; margin-bottom: 24px; }
+  .test-grid { display: grid; gap: 8px; }
+  .test-row { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-radius: 8px; background: #1e293b; font-size: 14px; }
+  .pass { color: #10b981; }
+  .fail { color: #ef4444; font-weight: 600; }
+  .warn { color: #f59e0b; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .badge-pass { background: #064e3b; color: #10b981; }
+  .badge-fail { background: #7f1d1d; color: #fca5a5; }
+  .badge-warn { background: #78350f; color: #fcd34d; }
+  .summary { margin-top: 24px; padding: 16px; background: #1e293b; border-radius: 12px; }
+  .summary h2 { margin-bottom: 12px; color: #3b82f6; }
+  .stat { font-size: 24px; font-weight: 700; }
+  .stat-row { display: flex; gap: 32px; margin-bottom: 12px; }
+  pre { background: #334155; padding: 12px; border-radius: 8px; overflow-x: auto; font-size: 12px; color: #cbd5e1; margin-top: 16px; }
+  button { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; }
+  .btn-run { background: #2563eb; color: white; font-size: 16px; margin-bottom: 16px; }
+  .btn-run:hover { background: #1d4ed8; }
+</style>
+</head>
+<body>
+<h1>CareerCanvas Responsive Verification</h1>
+<p class="subtitle">Strict overflow and layout check across all viewports</p>
+<button class="btn-run" onclick="runTests()">Run All Tests</button>
+<div id="results" class="test-grid"></div>
+<div id="summary" class="summary" style="display:none"></div>
+
+<script>
+const VIEWPORTS = [
+  { w: 320, h: 568, name: 'iPhone SE' },
+  { w: 360, h: 640, name: 'Small Android' },
+  { w: 375, h: 667, name: 'iPhone 8' },
+  { w: 390, h: 844, name: 'iPhone 14' },
+  { w: 412, h: 915, name: 'Pixel 7' },
+  { w: 768, h: 1024, name: 'iPad Portrait' },
+  { w: 1024, h: 768, name: 'iPad Landscape' },
+  { w: 1280, h: 720, name: 'Laptop HD' },
+  { w: 1366, h: 768, name: 'Laptop' },
+  { w: 1440, h: 900, name: 'Desktop' },
+  { w: 1920, h: 1080, name: 'Full HD' },
+];
+
+const PAGES = [
+  { hash: '#/dashboard', name: 'Dashboard' },
+  { hash: '#/master-profile', name: 'Profile' },
+  { hash: '#/applications', name: 'Applications' },
+  { hash: '#/templates', name: 'Templates' },
+  { hash: '#/settings', name: 'Settings' },
+];
+
+let results = [];
+let passed = 0;
+let failed = 0;
+let warnings = 0;
+
+function log(viewport, page, status, detail) {
+  const r = { viewport, page, status, detail };
+  results.push(r);
+  if (status === 'PASS') passed++;
+  else if (status === 'FAIL') failed++;
+  else warnings++;
+
+  const el = document.getElementById('results');
+  const row = document.createElement('div');
+  row.className = 'test-row';
+  const badgeClass = status === 'PASS' ? 'badge-pass' : status === 'FAIL' ? 'badge-fail' : 'badge-warn';
+  row.innerHTML = `
+    <span class="badge ${badgeClass}">${status}</span>
+    <span>${viewport}</span>
+    <span style="color:#94a3b8">→</span>
+    <span>${page}</span>
+    <span style="flex:1;text-align:right;font-size:12px;color:${status==='FAIL'?'#fca5a5':'#94a3b8'}">${detail}</span>
+  `;
+  el.appendChild(row);
+}
+
+async function runTests() {
+  results = []; passed = 0; failed = 0; warnings = 0;
+  document.getElementById('results').innerHTML = '';
+  document.getElementById('summary').style.display = 'none';
+
+  // Test current page overflow
+  const currentOverflow = document.documentElement.scrollWidth > document.documentElement.clientWidth;
+  log('Current', 'This page', currentOverflow ? 'FAIL' : 'PASS',
+      currentOverflow ? `Overflow: ${document.documentElement.scrollWidth - document.documentElement.clientWidth}px` : 'No overflow');
+
+  // Open main app in iframe for each viewport
+  for (const vp of VIEWPORTS) {
+    for (const page of PAGES) {
+      await testViewport(vp, page);
+    }
+  }
+
+  // CSS analysis
+  await analyzeCSS();
+
+  showSummary();
+}
+
+async function testViewport(vp, page) {
+  return new Promise((resolve) => {
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = `width:${vp.w}px;height:${vp.h}px;border:none;position:fixed;top:-9999px;left:-9999px;`;
+    iframe.src = `index.html${page.hash}`;
+    document.body.appendChild(iframe);
+
+    const timeout = setTimeout(() => {
+      log(`${vp.w}×${vp.h} (${vp.name})`, page.name, 'WARN', 'Timeout loading page');
+      iframe.remove();
+      resolve();
+    }, 5000);
+
+    iframe.onload = () => {
+      clearTimeout(timeout);
+      try {
+        const doc = iframe.contentDocument;
+        const body = doc.body;
+        const html = doc.documentElement;
+
+        // Check horizontal overflow
+        const overflowX = html.scrollWidth > vp.w + 2; // 2px tolerance
+        const overflowAmount = html.scrollWidth - vp.w;
+
+        if (overflowX && overflowAmount > 5) {
+          log(`${vp.w}×${vp.h} (${vp.name})`, page.name, 'FAIL', `Horizontal overflow: ${overflowAmount}px`);
+        } else if (overflowX) {
+          log(`${vp.w}×${vp.h} (${vp.name})`, page.name, 'WARN', `Minor overflow: ${overflowAmount}px (scrollbar?)`);
+        } else {
+          log(`${vp.w}×${vp.h} (${vp.name})`, page.name, 'PASS', 'No overflow');
+        }
+
+        // Check for elements extending past viewport
+        const allElements = doc.querySelectorAll('*');
+        let worstOverflow = 0;
+        let worstElement = '';
+        for (const el of allElements) {
+          const rect = el.getBoundingClientRect();
+          if (rect.right > vp.w + 10 && rect.width > 0 && el.offsetParent !== null) {
+            const overflow = Math.round(rect.right - vp.w);
+            if (overflow > worstOverflow) {
+              worstOverflow = overflow;
+              worstElement = el.tagName + (el.className ? `.${el.className.split(' ')[0]}` : '');
+            }
+          }
+        }
+        if (worstOverflow > 10) {
+          log(`${vp.w}×${vp.h} (${vp.name})`, page.name + ' [elements]', 'FAIL',
+              `${worstElement} extends ${worstOverflow}px past viewport`);
+        }
+
+      } catch (e) {
+        log(`${vp.w}×${vp.h} (${vp.name})`, page.name, 'WARN', `Cross-origin: ${e.message.substring(0, 50)}`);
+      }
+
+      iframe.remove();
+      resolve();
+    };
+
+    iframe.onerror = () => {
+      clearTimeout(timeout);
+      log(`${vp.w}×${vp.h} (${vp.name})`, page.name, 'FAIL', 'Failed to load');
+      iframe.remove();
+      resolve();
+    };
+  });
+}
+
+async function analyzeCSS() {
+  log('CSS', 'Analysis', 'PASS', 'Starting CSS analysis...');
+
+  // Check all stylesheets for potential issues
+  try {
+    const cssFiles = [
+      'src/css/reset.css', 'src/css/variables.css', 'src/css/base.css',
+      'src/css/layout.css', 'src/css/components.css', 'src/css/dashboard.css',
+      'src/css/editor.css', 'src/css/onboarding.css', 'src/css/templates.css',
+      'src/css/font-manager.css'
+    ];
+
+    for (const file of cssFiles) {
+      try {
+        const resp = await fetch(file);
+        const text = await resp.text();
+
+        // Check for 100vw (not in calc)
+        const vwMatches = text.match(/(?<!calc\([^)]*)\b100vw\b(?![^(]*\))/g);
+        if (vwMatches && vwMatches.length > 0) {
+          log('CSS', file.split('/').pop(), 'WARN', `Found ${vwMatches.length} bare 100vw usage(s)`);
+        }
+
+        // Count media queries
+        const mediaQueries = (text.match(/@media/g) || []).length;
+        log('CSS', file.split('/').pop(), 'PASS', `${mediaQueries} media queries, ${text.split('\n').length} lines`);
+
+      } catch (e) {
+        log('CSS', file, 'WARN', 'Could not fetch');
+      }
+    }
+  } catch (e) {
+    log('CSS', 'Analysis', 'WARN', e.message);
+  }
+}
+
+function showSummary() {
+  const el = document.getElementById('summary');
+  el.style.display = 'block';
+  el.innerHTML = `
+    <h2>Test Summary</h2>
+    <div class="stat-row">
+      <div><span class="stat pass">${passed}</span> Passed</div>
+      <div><span class="stat fail">${failed}</span> Failed</div>
+      <div><span class="stat warn">${warnings}</span> Warnings</div>
+      <div><span class="stat" style="color:#e2e8f0">${passed + failed + warnings}</span> Total</div>
+    </div>
+    <p style="color:#94a3b8;margin-top:8px">
+      ${failed === 0 ? '✅ No critical responsive failures detected.' : `⚠️ ${failed} responsive failure(s) need attention.`}
+    </p>
+    <p style="color:#64748b;font-size:12px;margin-top:8px">
+      Git status: No commits, branches, pushes, or deployments performed.
+    </p>
+  `;
+}
+</script>
+</body>
+</html>

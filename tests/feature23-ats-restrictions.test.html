@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html><head><title>Feature 23 Test: ATS-Safe Restrictions</title></head>
+<body>
+<h2>Feature 23: ATS-Safe Restrictions</h2>
+<pre id="log"></pre>
+<script type="module">
+const el = document.getElementById('log');
+function log(msg) { el.textContent += msg + '\n'; }
+let passed = 0, failed = 0;
+function assert(name, cond) { if (cond) { log('  PASS: ' + name); passed++; } else { log('  FAIL: ' + name); failed++; } }
+try {
+  const { createEmptyDocument, DOCUMENT_TYPES } = await import('./src/js/core/schema.js');
+
+  log('\n--- Test 1: Small font enforcement ---');
+  const doc = createEmptyDocument(DOCUMENT_TYPES.RESUME);
+  if (!doc.design) doc.design = {};
+  doc.design.fontSize = 8;
+  // Simulate enforcement
+  if (doc.design.fontSize < 10) doc.design.fontSize = 10;
+  assert('Font size enforced to 10', doc.design.fontSize === 10);
+
+  log('\n--- Test 2: Column reset ---');
+  doc.sections[0].column = 'sidebar';
+  doc.sections[1].column = 'sidebar';
+  doc.sections.forEach(s => { if (s.column === 'sidebar') s.column = 'main'; });
+  assert('All columns reset to main', doc.sections.every(s => s.column !== 'sidebar'));
+
+  log('\n--- Test 3: Safe font enforcement ---');
+  doc.design.fontFamily = 'Comic Sans MS, cursive';
+  const currentFont = doc.design.fontFamily.split(',')[0].trim().replace(/"/g, '');
+  const safeFonts = ['Arial','Helvetica','Calibri','Verdana','Tahoma','Georgia','Times New Roman','Cambria','Garamond','Palatino'];
+  const isSafe = safeFonts.some(f => currentFont.toLowerCase() === f.toLowerCase());
+  if (!isSafe) doc.design.fontFamily = 'Arial, Helvetica, sans-serif';
+  assert('Unsafe font replaced', doc.design.fontFamily === 'Arial, Helvetica, sans-serif');
+
+  log('\n--- Test 4: Safe font preserved ---');
+  doc.design.fontFamily = 'Georgia, serif';
+  const currentFont2 = doc.design.fontFamily.split(',')[0].trim();
+  const isSafe2 = safeFonts.some(f => currentFont2.toLowerCase() === f.toLowerCase());
+  assert('Georgia is safe', isSafe2);
+
+  log('\n--- Test 5: Contrast enforcement ---');
+  doc.design.textColor = '#cccccc'; // too light
+  const hex = doc.design.textColor.replace('#','');
+  const r = parseInt(hex.substr(0,2),16), g = parseInt(hex.substr(2,2),16), b = parseInt(hex.substr(4,2),16);
+  const brightness = (r*299 + g*587 + b*114) / 1000;
+  if (brightness > 180) doc.design.textColor = '#1a1a1a';
+  assert('Light text darkened', doc.design.textColor === '#1a1a1a');
+
+  log('\n--- Test 6: Dark text preserved ---');
+  doc.design.textColor = '#333333';
+  const hex2 = doc.design.textColor.replace('#','');
+  const r2 = parseInt(hex2.substr(0,2),16), g2 = parseInt(hex2.substr(2,2),16), b2 = parseInt(hex2.substr(4,2),16);
+  const brightness2 = (r2*299 + g2*587 + b2*114) / 1000;
+  assert('Dark text not changed', brightness2 <= 180 && doc.design.textColor === '#333333');
+
+  log('\n--- Test 7: ATS mode flags ---');
+  doc.settings = { atsMode: true };
+  assert('ATS mode enabled', doc.settings.atsMode === true);
+  doc.settings.atsMode = false;
+  assert('ATS mode disabled', doc.settings.atsMode === false);
+
+  log('\n========================================');
+  log('RESULTS: ' + passed + ' passed, ' + failed + ' failed');
+  log(failed === 0 ? 'ALL TESTS PASSED' : 'SOME TESTS FAILED');
+} catch(e) { log('FATAL: ' + e.message + '\n' + e.stack); }
+</script>
+</body>
+</html>
