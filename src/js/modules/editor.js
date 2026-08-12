@@ -4502,7 +4502,7 @@ export class ResumeEditor {
         });
       };
 
-      if (!savedKey) showKeySetup();
+      if (!savedKey && !(await AiFormatter.isServerConfigured())) showKeySetup();
       const aiResultsArea = document.createElement('div');
       aiResultsArea.id = 'ai-results-area';
 

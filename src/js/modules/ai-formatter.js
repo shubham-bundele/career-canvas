@@ -46,9 +46,26 @@ export class AiFormatter {
 
   static async checkServerAvailable() {
     try {
-      const r = await fetch('/api/ai-analyze', { method: 'HEAD' });
-      return r.status !== 404 && r.status !== 405;
+      const r = await fetch('/api/ai-analyze', { method: 'OPTIONS' });
+      return r.status !== 404;
     } catch { return false; }
+  }
+
+  static async isServerConfigured() {
+    if (AiFormatter.hasOwnKey()) return true;
+    const available = await AiFormatter.checkServerAvailable();
+    if (!available) return false;
+
+    try {
+      const r = await fetch('/api/ai-analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resumeText: 'ping', mode: 'summary', context: 'health-check' })
+      });
+      return r.status !== 404 && r.status !== 405 && r.status !== 503;
+    } catch {
+      return false;
+    }
   }
 
   static hasOwnKey() {

@@ -1000,7 +1000,7 @@ export class ImportManager {
           }
         } catch (err) {
           console.error('AI format failed:', err);
-          if (err.message.includes('API key') || err.message.includes('not configured')) {
+          if ((err.message.includes('API key') || err.message.includes('not configured')) && !(await AiFormatter.isServerConfigured())) {
             aiFormatBtn.textContent = '🤖 AI Format';
             aiFormatBtn.disabled = false;
             this._showAiKeyInputInline(footer, async () => {
