@@ -3,10 +3,22 @@
   "version": "1.0.0",
   "description": "CareerCanvas — Free resume, CV, cover letter, and career toolkit. No paywall, no watermark, no registration required.",
   "private": true,
+  "type": "module",
   "scripts": {
     "start": "npx http-server . -p 8080 --cors -c-1 -o",
     "serve": "npx http-server . -p 8080 --cors -c-1"
   },
-  "keywords": ["resume", "cv", "cover-letter", "career", "job-application", "free"],
-  "license": "MIT"
+  "keywords": [
+    "resume",
+    "cv",
+    "cover-letter",
+    "career",
+    "job-application",
+    "free"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.0"
+  }
 }

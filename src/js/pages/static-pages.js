@@ -101,7 +101,7 @@ export class StaticPages {
       </ul>
 
       <div class="warning-box">
-        <p><strong>Important:</strong> AI features send data to third-party AI providers (Groq/Google Gemini) for processing. We do not store AI request/response data on our servers. Review the AI provider's privacy policy for their data handling practices.</p>
+        <p><strong>Important:</strong> AI features send data to third-party AI providers (Gemini/Google Gemini) for processing. We do not store AI request/response data on our servers. Review the AI provider's privacy policy for their data handling practices.</p>
       </div>
 
       <h2>2. How We Use Your Data</h2>
@@ -493,7 +493,7 @@ export class StaticPages {
         <li><strong>Styling:</strong> CSS Custom Properties with dark mode support</li>
         <li><strong>Routing:</strong> Hash-based SPA router</li>
         <li><strong>Offline:</strong> Service Worker with stale-while-revalidate caching</li>
-        <li><strong>AI:</strong> Optional integration with Groq and Google Gemini APIs</li>
+        <li><strong>AI:</strong> Optional integration with Gemini and Google Gemini APIs</li>
         <li><strong>Auth:</strong> Optional Supabase authentication</li>
       </ul>
 
@@ -527,7 +527,7 @@ export class StaticPages {
       },
       {
         q: 'How do AI features work?',
-        a: 'AI features are optional and require an API key (configured in Settings). When you use an AI feature, the relevant text is sent to the AI provider (Groq or Google Gemini) for processing. The response is returned to your browser. We do not store AI requests or responses on our servers.'
+        a: 'AI features are optional and require an API key (configured in Settings). When you use an AI feature, the relevant text is sent to the AI provider (Gemini or Google Gemini) for processing. The response is returned to your browser. We do not store AI requests or responses on our servers.'
       },
       {
         q: 'Are the templates ATS-compatible?',
@@ -628,7 +628,7 @@ export class StaticPages {
         <div class="roadmap-dot"></div>
         <h3>Phase 3: AI & Import/Export <span class="roadmap-label roadmap-label--done">Completed</span></h3>
         <ul>
-          <li>18 AI-powered features (Groq + Gemini)</li>
+          <li>18 AI-powered features (Gemini + Gemini)</li>
           <li>Multi-format import (PDF, DOCX, JSON, TXT, HTML)</li>
           <li>AI smart parser for document imports</li>
           <li>ATS checker with AI-powered optimization</li>
@@ -932,7 +932,7 @@ export class StaticPages {
         <div class="changelog-date">March 2026</div>
         <p>
           <span class="changelog-tag changelog-tag--new">New</span>
-          18 AI-powered features (Groq + Google Gemini)
+          18 AI-powered features (Gemini + Google Gemini)
         </p>
         <p>
           <span class="changelog-tag changelog-tag--new">New</span>

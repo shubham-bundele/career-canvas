@@ -1,11 +1,10 @@
-/**
+﻿/**
  * Vercel Serverless Function — AI Resume Analysis
- * Proxies requests to Groq API using server-side API key.
+ * Proxies requests to Gemini API using server-side API key.
  * Users never see or enter any API key.
  */
 
-const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const MODEL = 'llama-3.3-70b-versatile';
+const MODEL = 'gemini-3.7-flash';
 const MAX_INPUT_LENGTH = 15000;
 const TIMEOUT_MS = 30000;
 
@@ -23,19 +22,19 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const apiKey = process.env.GROQ_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GROQ_API_KEY;
   if (!apiKey) {
-    return res.status(503).json({ error: 'AI service not configured. Add GROQ_API_KEY in Vercel environment variables.' });
+    return res.status(503).json({ error: 'AI service not configured. Add GEMINI_API_KEY or GROQ_API_KEY in your environment variables.' });
   }
 
   try {
-    const { resumeText, mode, context } = req.body || {};
+    const { resumeText, resumeFile, resumeMimeType, mode, context } = req.body || {};
 
-    if (!resumeText || typeof resumeText !== 'string') {
-      return res.status(400).json({ error: 'Missing resumeText' });
+    if (!resumeText && !resumeFile) {
+      return res.status(400).json({ error: 'Missing resumeText or resumeFile' });
     }
 
-    if (resumeText.length > MAX_INPUT_LENGTH) {
+    if (resumeText && resumeText.length > MAX_INPUT_LENGTH) {
       return res.status(400).json({ error: `Resume text too long (max ${MAX_INPUT_LENGTH} chars)` });
     }
 
@@ -90,51 +89,36 @@ export default async function handler(req, res) {
       systemPrompt = `You are a professional translator. Translate this resume content to ${context || 'Spanish'}. Maintain professional resume conventions for the target language/culture. Return ONLY the translated text.`;
       userPrompt = resumeText;
     } else if (mode === 'parse') {
-      systemPrompt = `You are a CareerCanvas resume parser. Return ONLY valid JSON with: {"name":"","title":"","email":"","phone":"","location":"","linkedin":"","github":"","website":"","sections":[{"title":"Exact heading","type":"TYPE","content":["line1","line2"]}]}. Allowed types: summary, experience, education, skills, projects, certifications, awards, publications, volunteer, languages, interests, references, custom. For experience: "Job Title | Company | Location" then "StartDate - EndDate" then bullet lines. For skills: split comma lists. Preserve ALL content.`;
-      userPrompt = `Parse this resume:\n\n${resumeText}`;
-    } else {
-      systemPrompt = 'You are a resume reviewer. Return ONLY a valid JSON array.';
-      userPrompt = `Analyze resume. Return: [{"category":"formatting/content/structure/ats","severity":"error/warning/info","message":"","field":"","original":"under 100 chars","suggestion":""}]. Max 12.\n\nResume:\n${resumeText}`;
+      systemPrompt = `You are a world-class resume parser and OCR correction AI. Extract highly structured data from raw, potentially messy or OCR-flattened resume text.\n\nReturn ONLY valid JSON (no markdown fences, no explanation) matching this schema:\n{\n  "name": "Full Name",\n  "title": "Professional Title or Designation",\n  "email": "email@example.com",\n  "phone": "phone number with country code if present",\n  "location": "City, State/Country",\n  "linkedin": "LinkedIn URL if found",\n  "github": "GitHub URL if found",\n  "website": "Personal website if found",\n  "sections": [\n    {\n      "title": "Exact heading as written in resume",\n      "type": "ONE of the allowed types below",\n      "content": ["each line as a separate string"]\n    }\n  ]\n}\n\nALLOWED SECTION TYPES: summary, experience, education, skills, projects, certifications, awards, publications, volunteer, languages, interests, references, custom.`;
+      userPrompt = `Parse this resume text:\n\n${resumeText}`;
     }
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
-    const response = await fetch(GROQ_API_URL, {
+    const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + MODEL + ':generateContent?key=' + apiKey, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: MODEL,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-        temperature: 0.3,
-        max_tokens: 2048
+        systemInstruction: systemPrompt,
+        contents: [{ parts: [{ text: userPrompt }] }],
+        generationConfig: {
+          temperature: 0.2,
+          maxOutputTokens: 1800,
+        },
       }),
-      signal: controller.signal
     });
 
-    clearTimeout(timeout);
-
     if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      const msg = err?.error?.message || `Groq API error (${response.status})`;
-      return res.status(response.status === 429 ? 429 : 502).json({ error: msg });
+      const errorText = await response.text();
+      throw new Error(`AI API request failed (${response.status}): ${errorText}`);
     }
 
     const data = await response.json();
-    const text = data?.choices?.[0]?.message?.content || '';
+    const text = data?.candidates?.[0]?.content?.parts?.map((part) => part.text).join('') || '';
 
     return res.status(200).json({ result: text });
-
-  } catch (err) {
-    if (err.name === 'AbortError') {
-      return res.status(504).json({ error: 'AI request timed out. Try again.' });
-    }
-    return res.status(500).json({ error: 'Internal server error' });
+  } catch (error) {
+    console.error('AI analyze failed:', error);
+    return res.status(500).json({ error: 'AI analysis failed.', details: error.message });
   }
 }

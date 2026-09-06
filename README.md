@@ -27,7 +27,7 @@ Build resumes, CVs, cover letters, reference sheets, and LinkedIn drafts entirel
 
 ### AI Features (18)
 
-All AI features use **Groq (Llama 3.3 70B)** or **Gemini** via a server proxy or direct key.
+All AI features use **Gemini (Llama 3.3 70B)** or **Gemini** via a server proxy or direct key.
 
 | # | Feature | Description |
 |---|---------|-------------|
@@ -114,7 +114,7 @@ All templates support photo placement, custom color schemes, and font selection.
 
 - 100% local storage (IndexedDB) for all core features
 - No server uploads unless AI features are used
-- AI requests go through a Vercel proxy or direct to Groq/Gemini
+- AI requests go through a Vercel proxy or direct to Gemini/Gemini
 - Optional Supabase auth for cloud sync (not required)
 
 ---
@@ -128,7 +128,7 @@ All templates support photo placement, custom color schemes, and font selection.
 | Styling | CSS Custom Properties, no preprocessor |
 | Routing | Hash-based SPA router |
 | State | Custom `StateManager` + `EventBus` |
-| AI | Groq API (Llama 3.3 70B) / Google Gemini |
+| AI | Gemini API (Llama 3.3 70B) / Google Gemini |
 | Auth | Supabase (optional) |
 | Hosting | Vercel (serverless functions for AI proxy) |
 | Build | None -- no bundler, no transpiler |
@@ -158,7 +158,7 @@ CareerCanvas AI works in two modes:
 
 ### Deployed (Vercel)
 
-The `/api/ai-analyze` serverless function proxies requests to Groq. Users never need an API key.
+The `/api/ai-analyze` serverless function proxies requests to Gemini. Users never need an API key.
 
 1. Deploy to Vercel
 2. Add `GROQ_API_KEY` in Vercel environment variables
@@ -168,7 +168,7 @@ The `/api/ai-analyze` serverless function proxies requests to Groq. Users never 
 
 Without a server proxy, you can use AI features by providing your own key:
 
-- **Groq**: Get a free key at [console.groq.com](https://console.groq.com), paste it in the Smart Format panel
+- **Gemini**: Get a free key at [console.gemini.com](https://console.gemini.com), paste it in the Smart Format panel
 - **Gemini**: Use a Google AI key (prefix `AIza`)
 - Keys are stored in `localStorage` and never sent to any server other than the AI provider
 
@@ -189,7 +189,7 @@ careercanvas/
   sw.js                   # Service worker (offline support)
   package.json            # Scripts and metadata
   api/
-    ai-analyze.js         # Vercel serverless: AI proxy to Groq
+    ai-analyze.js         # Vercel serverless: AI proxy to Gemini
     public-config.js      # Vercel serverless: public config
     delete-account.js     # Vercel serverless: account deletion
   src/
@@ -218,7 +218,7 @@ careercanvas/
       modules/            # 40 feature modules
         editor.js         # Resume editor (WYSIWYG)
         dashboard.js      # Document list & management
-        ai-formatter.js   # AI integration (Groq/Gemini)
+        ai-formatter.js   # AI integration (Gemini/Gemini)
         smart-formatter.js# Rule-based formatting (no AI)
         import-manager.js # Multi-format import
         export-manager.js # Multi-format export
@@ -265,7 +265,7 @@ index.html
 - Hash-based routing with lazy module initialization
 - Documents stored as structured JSON in IndexedDB (personalInfo, sections, design, settings)
 - Templates are pure functions: `(data, options) => HTML string`
-- AI formatter auto-detects provider from API key prefix (`gsk_` = Groq, `AIza` = Gemini)
+- AI formatter auto-detects provider from API key prefix (`gsk_` = Gemini, `AIza` = Gemini)
 - Server proxy (`/api/ai-analyze`) keeps API keys off the client in production
 
 ---

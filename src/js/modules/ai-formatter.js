@@ -16,7 +16,7 @@ const PROVIDERS = {
     name: 'Groq'
   },
   gemini: {
-    urlBase: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
+    urlBase: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent',
     keyPrefix: 'AIza',
     name: 'Gemini'
   }
@@ -31,9 +31,9 @@ export class AiFormatter {
   _detectProvider(key) {
     if (!key) return null;
     if (key.startsWith('gsk_')) return 'groq';
-    if (key.startsWith('AIza')) return 'gemini';
-    // Default: try as Groq (OpenAI-compatible format)
-    return 'groq';
+    if (key.startsWith('AIza') || key.startsWith('AQ.')) return 'gemini';
+    // Default: try as Gemini
+    return 'gemini';
   }
 
   // ==================== Key management ====================
@@ -91,15 +91,15 @@ export class AiFormatter {
   static getProviderName() {
     const key = AiFormatter.getApiKey();
     if (key.startsWith('gsk_')) return 'Groq';
-    if (key.startsWith('AIza')) return 'Gemini';
-    return 'AI';
+    if (key.startsWith('AIza') || key.startsWith('AQ.')) return 'Gemini';
+    return 'Gemini';
   }
 
   static _getFallbackKey(currentKey) {
     if (currentKey.startsWith('gsk_')) {
       return localStorage.getItem('cc_ai_gemini_key') || '';
     }
-    if (currentKey.startsWith('AIza')) {
+    if (currentKey.startsWith('AIza') || currentKey.startsWith('AQ.')) {
       return localStorage.getItem('cc_ai_groq_key') || '';
     }
     return '';
@@ -207,7 +207,7 @@ export class AiFormatter {
         if (err.message.includes('Rate limited') || err.message.includes('429')) {
           const fallbackKey = AiFormatter._getFallbackKey(this.apiKey);
           if (fallbackKey) {
-            const fallbackProvider = fallbackKey.startsWith('AIza') ? 'Gemini' : 'Groq';
+            const fallbackProvider = (fallbackKey.startsWith('AIza') || fallbackKey.startsWith('AQ.')) ? 'Gemini' : 'Groq';
             console.log(`Primary provider rate-limited, falling back to ${fallbackProvider}`);
             const saved = this.apiKey;
             const savedProvider = this.provider;
@@ -439,6 +439,43 @@ ${resumeText}`;
   async parseLinkedIn(linkedInText) {
     if (!linkedInText || linkedInText.trim().length < 20) throw new Error('Paste more LinkedIn content.');
     const raw = await this._callAI(linkedInText, 'parse-linkedin');
+    return this._parseJSON(raw);
+  }
+
+  async parseResume(resumeText) {
+    if (!resumeText || resumeText.trim().length < 20) throw new Error('Add more content first.');
+    const raw = await this._callAI(resumeText, 'parse');
+    return this._parseJSON(raw);
+  }
+
+  async parseDocument(base64Data, mimeType) {
+    const response = await fetch('/api/ai-analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        resumeFile: base64Data, 
+        resumeMimeType: mimeType, 
+        mode: 'parse',
+        resumeText: 'Extract details from this document.' 
+      })
+    });
+    
+    if (!response.ok) throw new Error('Failed to parse document natively');
+    const data = await response.json();
+    return this._parseJSON(data.result);
+  }
+
+  async scoreResume(document) {
+    const resumeText = this._extractResumeText(document);
+    if (resumeText.trim().length < 30) throw new Error('Add more content first.');
+    const raw = await this._callAI(resumeText, 'resume-score');
+    return this._parseJSON(raw);
+  }
+
+  async optimizeKeywords(document, jobDescription) {
+    const resumeText = this._extractResumeText(document);
+    if (resumeText.trim().length < 30) throw new Error('Add more content first.');
+    const raw = await this._callAI(resumeText, 'keyword-optimization', jobDescription);
     return this._parseJSON(raw);
   }
 

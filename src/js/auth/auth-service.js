@@ -105,7 +105,7 @@ export async function initializeAuth() {
 
 export async function signUp({ email, password, displayName }) {
   const sb = await getSupabase();
-  if (!sb) return { error: { message: 'Authentication not configured' } };
+  if (!sb) return { error: { message: 'Authentication not configured. Click "Continue as Guest" to use the app without an account.' } };
 
   const config = getAuthConfig();
   const { data, error } = await sb.auth.signUp({

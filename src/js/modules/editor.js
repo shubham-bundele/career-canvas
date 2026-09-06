@@ -4460,7 +4460,7 @@ export class ResumeEditor {
 
     const aiHeader = document.createElement('div');
     aiHeader.className = 'smart-format-category';
-    aiHeader.textContent = '🤖 AI-Powered Analysis (Groq)';
+    aiHeader.textContent = '🤖 AI-Powered Analysis (Gemini)';
     aiSection.appendChild(aiHeader);
 
     const aiContent = document.createElement('div');
@@ -4480,14 +4480,14 @@ export class ResumeEditor {
         keyRow.id = 'smart-format-key-row';
         keyRow.style.cssText = 'margin-bottom:var(--space-3);';
         keyRow.innerHTML = `
-          <p style="font-size:var(--font-size-xs);color:var(--text-secondary);margin-bottom:var(--space-2);">AI features require a free API key (Gemini or Groq):</p>
+          <p style="font-size:var(--font-size-xs);color:var(--text-secondary);margin-bottom:var(--space-2);">AI features require a free API key (Gemini or Gemini):</p>
           <div style="display:flex;gap:var(--space-2);align-items:center;">
-            <input type="password" id="smart-format-ai-key" placeholder="Paste Gemini or Groq API key..." style="flex:1;padding:var(--space-2);border:1px solid var(--border-primary);border-radius:var(--radius-md);background:var(--bg-secondary);color:var(--text-primary);font-size:var(--font-size-xs);">
+            <input type="password" id="smart-format-ai-key" placeholder="Paste Gemini or Gemini API key..." style="flex:1;padding:var(--space-2);border:1px solid var(--border-primary);border-radius:var(--radius-md);background:var(--bg-secondary);color:var(--text-primary);font-size:var(--font-size-xs);">
             <button class="btn btn-sm btn-primary" id="smart-format-key-save" style="font-size:var(--font-size-xs);white-space:nowrap;">Save & Run</button>
           </div>
           <div style="display:flex;gap:var(--space-2);margin-top:var(--space-1);">
             <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style="font-size:0.625rem;color:var(--color-primary);">Get Gemini key</a>
-            <a href="https://console.groq.com" target="_blank" rel="noopener" style="font-size:0.625rem;color:var(--text-muted);">Get Groq key</a>
+            <a href="https://console.gemini.com" target="_blank" rel="noopener" style="font-size:0.625rem;color:var(--text-muted);">Get Gemini key</a>
           </div>
         `;
         aiContent.insertBefore(keyRow, aiContent.firstChild);
@@ -4919,7 +4919,7 @@ export class ResumeEditor {
       // Disclaimer
       const disclaimer = document.createElement('p');
       disclaimer.style.cssText = 'font-size:0.625rem;color:var(--text-muted);margin-top:var(--space-2);line-height:1.4;font-style:italic;';
-      disclaimer.textContent = 'Local rule-based check + optional AI suggestions via Groq.';
+      disclaimer.textContent = 'Local rule-based check + optional AI suggestions via Gemini.';
       container.appendChild(disclaimer);
 
     } catch (err) {
@@ -4943,12 +4943,12 @@ export class ResumeEditor {
     const setupArea = document.createElement('div');
     setupArea.style.cssText = 'margin-top:var(--space-3);border-top:1px solid var(--border-primary);padding-top:var(--space-3);';
     setupArea.innerHTML = `
-      <p style="font-size:var(--font-size-xs);color:var(--text-secondary);margin-bottom:var(--space-2);">AI suggestions require a free API key (Gemini or Groq):</p>
-      <input type="password" placeholder="Paste Gemini or Groq API key..." style="width:100%;padding:var(--space-2);border:1px solid var(--border-primary);border-radius:var(--radius-md);background:var(--bg-secondary);color:var(--text-primary);font-size:var(--font-size-xs);margin-bottom:var(--space-2);" id="ats-ai-key-input">
+      <p style="font-size:var(--font-size-xs);color:var(--text-secondary);margin-bottom:var(--space-2);">AI suggestions require a free API key (Gemini or Gemini):</p>
+      <input type="password" placeholder="Paste Gemini or Gemini API key..." style="width:100%;padding:var(--space-2);border:1px solid var(--border-primary);border-radius:var(--radius-md);background:var(--bg-secondary);color:var(--text-primary);font-size:var(--font-size-xs);margin-bottom:var(--space-2);" id="ats-ai-key-input">
       <div style="display:flex;gap:var(--space-2);align-items:center;">
         <button class="btn btn-sm btn-primary" id="ats-ai-key-save">Save & Run</button>
         <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style="font-size:var(--font-size-xs);color:var(--color-primary);">Gemini key ↗</a>
-        <a href="https://console.groq.com" target="_blank" rel="noopener" style="font-size:var(--font-size-xs);color:var(--text-secondary);">Groq key ↗</a>
+        <a href="https://console.gemini.com" target="_blank" rel="noopener" style="font-size:var(--font-size-xs);color:var(--text-secondary);">Gemini key ↗</a>
       </div>
     `;
     container.appendChild(setupArea);

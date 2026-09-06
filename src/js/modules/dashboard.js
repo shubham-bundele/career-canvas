@@ -227,7 +227,7 @@ export class Dashboard {
       style: 'font-size:13px;color:var(--text-secondary, #64748b);font-weight:500;text-align:center;'
     });
     dropZone.appendChild(dropZoneText);
-    const dropZoneSub = createElement('span', '.json, .pdf, .docx, .txt, .md, .html', {
+    const dropZoneSub = createElement('span', '.json, .pdf, .docx, .txt, .md, .html, .png, .jpg, .jpeg', {
       style: 'font-size:11px;color:var(--text-tertiary, #94a3b8);'
     });
     dropZone.appendChild(dropZoneSub);
@@ -236,7 +236,7 @@ export class Dashboard {
       const input = document.createElement('input');
       input.type = 'file';
       input.multiple = true;
-      input.accept = '.json,.pdf,.docx,.txt,.md,.html';
+      input.accept = '.json,.pdf,.docx,.txt,.md,.html,.png,.jpg,.jpeg';
       input.addEventListener('change', (e) => {
         if (e.target.files && e.target.files.length > 0) {
           this.processDroppedFiles(e.target.files);
@@ -1024,6 +1024,15 @@ export class Dashboard {
             break;
           case '.pdf':
             await importManager.importPDF(file);
+            break;
+          case '.png':
+          case '.jpg':
+          case '.jpeg':
+            if (importManager.importImage) {
+              await importManager.importImage(file);
+            } else {
+              window.CC?.toast?.show?.('Image import not supported yet', 'warning');
+            }
             break;
           case '.docx':
             if (importManager.importDOCX) {

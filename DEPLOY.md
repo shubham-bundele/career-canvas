@@ -11,7 +11,7 @@ Static vanilla JS app — no build step needed. Deploy anywhere that serves stat
 | Configuration | What You Get |
 |--------------|-------------|
 | **No env vars** | Everything except AI and auth. Full resume builder: 68+ templates, WYSIWYG editor, PDF/JSON/Markdown/HTML export, job matcher, skills matrix, experience calculator, application tracker, dark mode, offline support. 100% functional. |
-| **GROQ_API_KEY only** | All of the above **plus** 18 AI features: AI Analyze, AI Summary, AI Section Writer, AI Bullet Improver, ATS AI Fix, AI Cover Letter, AI Keyword Extractor, Smart Format, and more. No auth needed. Free via Groq. |
+| **GROQ_API_KEY only** | All of the above **plus** 18 AI features: AI Analyze, AI Summary, AI Section Writer, AI Bullet Improver, ATS AI Fix, AI Cover Letter, AI Keyword Extractor, Smart Format, and more. No auth needed. Free via Gemini. |
 | **GROQ_API_KEY + Supabase** | All of the above **plus** user accounts, sign-in (email/password, magic link, Google OAuth), account deletion, and cloud-sync readiness (future). |
 
 ### API Routes (Vercel Serverless Functions)
@@ -20,7 +20,7 @@ The app includes 3 serverless functions in `/api/`:
 
 | Route | Purpose | Requires |
 |-------|---------|----------|
-| `api/ai-analyze.js` | AI proxy — sends resume content to Groq LLM, returns suggestions | `GROQ_API_KEY` |
+| `api/ai-analyze.js` | AI proxy — sends resume content to Gemini LLM, returns suggestions | `GROQ_API_KEY` |
 | `api/public-config.js` | Returns auth configuration (Supabase URL, enabled providers) to the browser | `SUPABASE_URL`, `SUPABASE_ANON_KEY` |
 | `api/delete-account.js` | Server-side account deletion (uses privileged key) | `SUPABASE_SERVICE_ROLE_KEY` |
 
@@ -30,7 +30,7 @@ These only run on Vercel (or compatible platforms with serverless function suppo
 
 | Variable | Required? | Purpose | Where to get it |
 |----------|-----------|---------|----------------|
-| `GROQ_API_KEY` | For AI features | Authenticates with Groq LLM API | Free at [console.groq.com](https://console.groq.com) |
+| `GROQ_API_KEY` | For AI features | Authenticates with Gemini LLM API | Free at [console.gemini.com](https://console.gemini.com) |
 | `SUPABASE_URL` | For auth only | Supabase project URL | Supabase dashboard → Settings → API |
 | `SUPABASE_ANON_KEY` | For auth only | Public browser key for Supabase | Supabase dashboard → Settings → API |
 | `SUPABASE_SERVICE_ROLE_KEY` | For account deletion only | Privileged server-side key (**never expose in browser**) | Supabase dashboard → Settings → API |
@@ -92,14 +92,14 @@ npm start
 
 **Custom Domain (Optional):** Vercel project > Settings > Domains > Add your domain.
 
-### Step 6: Enable AI Features (Free — Groq)
+### Step 6: Enable AI Features (Free — Gemini)
 
-> **This is the only env var most users need.** It unlocks 18 AI-powered features across the app: AI Analyze, AI Summary, AI Section Writer, AI Bullet Improver, ATS AI Fix, AI Cover Letter, AI Keyword Extractor, Smart Format, and more. All free via Groq's generous free tier.
+> **This is the only env var most users need.** It unlocks 18 AI-powered features across the app: AI Analyze, AI Summary, AI Section Writer, AI Bullet Improver, ATS AI Fix, AI Cover Letter, AI Keyword Extractor, Smart Format, and more. All free via Gemini's generous free tier.
 
-AI features require a Groq API key set as a Vercel environment variable. Users never need to enter any key — it's all server-side.
+AI features require a Gemini API key set as a Vercel environment variable. Users never need to enter any key — it's all server-side.
 
-**6a. Get a free Groq API key:**
-1. Go to https://console.groq.com (sign up free with Google or GitHub)
+**6a. Get a free Gemini API key:**
+1. Go to https://console.gemini.com (sign up free with Google or GitHub)
 2. Click **"API Keys"** in the left sidebar
 3. Click **"Create API Key"**
 4. Give it a name (e.g., "CareerCanvas")
@@ -118,19 +118,19 @@ AI features require a Groq API key set as a Vercel environment variable. Users n
 
 **That's it!** AI features now work for all users automatically — no signup, no keys, no configuration on their end.
 
-**Cost:** Groq free tier = 30 requests/minute, ~14,400/day. No credit card needed. More than enough for personal/portfolio use.
+**Cost:** Gemini free tier = 30 requests/minute, ~14,400/day. No credit card needed. More than enough for personal/portfolio use.
 
 **How it works:**
 ```
 User clicks AI Analyze → Browser calls /api/ai-analyze on your Vercel
 → Vercel function reads GROQ_API_KEY from env (hidden from users)
-→ Calls Groq API with Llama 3.3 model → Returns suggestions
+→ Calls Gemini API with Llama 3.3 model → Returns suggestions
 → Browser shows results with Apply/Apply All buttons
 ```
 
 **Without the key:** The app works perfectly — all features except AI-powered ones function normally. The app is a fully functional resume builder without any env vars. AI buttons will show an "AI not configured" message.
 
-**Local development:** When running locally (`npx http-server`), the server proxy won't work (no Vercel). Users can paste their own Groq key in Smart Format panel for local AI testing.
+**Local development:** When running locally (`npx http-server`), the server proxy won't work (no Vercel). Users can paste their own Gemini key in Smart Format panel for local AI testing.
 
 ---
 
@@ -264,7 +264,7 @@ No server, no sign-up, no data uploads — everything stays on the user's device
 Key Features:
 - 68+ professionally designed templates (ATS-optimized, creative, academic)
 - Live WYSIWYG editor with drag-and-drop sections and undo/redo
-- 18 AI-powered features: AI Analyze, AI Summary, AI Section Writer, ATS AI Fix, and more (via Groq LLM)
+- 18 AI-powered features: AI Analyze, AI Summary, AI Section Writer, ATS AI Fix, and more (via Gemini LLM)
 - Job Description Matcher with keyword analysis
 - Multi-format export (PDF, JSON, Markdown, HTML, Plain Text)
 - Application tracker, skills matrix, experience calculator
@@ -275,7 +275,7 @@ Key Features:
 Technical Highlights:
 - Vanilla JavaScript — zero frameworks, zero dependencies
 - ES Modules architecture with IndexedDB storage
-- Serverless AI proxy via Vercel edge functions (Groq/Llama 3.3)
+- Serverless AI proxy via Vercel edge functions (Gemini/Llama 3.3)
 - CSS Custom Properties design system with dark mode
 - 38+ template render functions with CSS-variable theming
 - ~15,000+ lines of hand-written code
@@ -302,7 +302,7 @@ No sign-up. No data uploads. No paywall. No watermarks.
 CareerCanvas features:
   68+ ATS-optimized and creative templates
   Live preview editor with drag-and-drop
-  18 AI features — AI Analyze, AI Summary, ATS Fix, and more (powered by Groq)
+  18 AI features — AI Analyze, AI Summary, ATS Fix, and more (powered by Gemini)
   Job Description Matcher for keyword analysis
   Export to PDF, JSON, Markdown, HTML
   Application tracker and career timeline

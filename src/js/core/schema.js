@@ -525,15 +525,18 @@ export function migrateDocument(doc) {
     return doc;
   }
 
-  let migrated = { ...doc };
+  const migrated = {
+    ...doc,
+    schemaVersion: SCHEMA_VERSION,
+    lastModified: new Date().toISOString(),
+    pinned: false,
+    archived: false
+  };
 
   // Future migrations will go here
   // if (currentVersion < 2) {
   //   migrated = migrateV1ToV2(migrated);
   // }
-
-  migrated.schemaVersion = SCHEMA_VERSION;
-  migrated.lastModified = new Date().toISOString();
 
   return migrated;
 }

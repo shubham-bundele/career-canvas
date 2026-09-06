@@ -96,7 +96,7 @@ export class ImportManager {
       }
 
       // Parse text
-      const parsed = this.parsePlainText(text);
+      const parsed = await this._parseTextWithFallback(text);
       parsed._rawText = text;
 
       // Show field mapping UI
@@ -1135,7 +1135,7 @@ export class ImportManager {
 
   async _aiFormatImport(parsedData) {
     const { AiFormatter } = await import('./ai-formatter.js');
-    const apiKey = AiFormatter.getApiKey();
+    const ai = new AiFormatter();
 
     // Build raw text from existing parsed data
     const rawParts = [];
@@ -1150,110 +1150,15 @@ export class ImportManager {
     // Also include _rawText if we stored it
     const resumeText = parsedData._rawText || rawParts.join('\n');
 
-    const systemPrompt = `You are a resume parser for CareerCanvas resume builder. Extract structured data from raw resume text.
-
-Return ONLY valid JSON (no markdown fences, no explanation) matching this schema:
-{
-  "name": "Full Name",
-  "title": "Professional Title or Designation",
-  "email": "email@example.com",
-  "phone": "phone number with country code if present",
-  "location": "City, State/Country",
-  "linkedin": "LinkedIn URL if found",
-  "github": "GitHub URL if found",
-  "website": "Personal website if found",
-  "sections": [
-    {
-      "title": "Exact heading as written in resume",
-      "type": "ONE of the allowed types below",
-      "content": ["each line as a separate string"]
-    }
-  ]
-}
-
-ALLOWED SECTION TYPES (use ONLY these exact values):
-- "summary" — for Profile Summary, Career Objective, About Me, Professional Profile, Overview, Personal Statement
-- "experience" — for Work Experience, Professional Experience, Employment History, Internships, Career History, Leadership Experience, Teaching Experience, Freelance, Consulting
-- "education" — for Education, Academic Background, Qualifications, Coursework, Academic Details
-- "skills" — for Skills, Technical Skills, Core Competencies, Tools & Technologies, Key Qualifications, Soft Skills, Personal Softskills
-- "projects" — for Projects, Portfolio, Open Source, Selected Projects
-- "certifications" — for Certifications, Licenses, Training, Professional Development, Courses
-- "awards" — for Awards, Achievements, Honors, Accomplishments, Grants, Scholarships
-- "publications" — for Publications, Research, Papers, Patents, Presentations, Conferences
-- "volunteer" — for Volunteer Experience, Community Service
-- "languages" — for Languages, Language Proficiency
-- "interests" — for Interests, Hobbies, Activities, Extracurricular
-- "references" — for References, Professional References
-- "custom" — for Declaration, Memberships, Affiliations, Additional Info, or anything that does not fit above
-
-HANDLING UNKNOWN OR NON-STANDARD SECTIONS:
-- If a heading does not match any type above, decide: does the CONTENT belong in an existing type?
-  - "Personal Softskills" with skills listed → use type "skills", keep original title "Personal Softskills"
-  - "Board Experience" with job-like entries → use type "experience", keep original title "Board Experience"
-  - "Key Achievements" with bullet accomplishments → use type "awards", keep original title "Key Achievements"
-  - "Professional Memberships" with org names → use type "custom", keep original title "Professional Memberships"
-- If content is truly unique (e.g., "Declaration", "Strengths", "Personal Details"), use type "custom" and keep the original heading as title
-- NEVER drop or skip content because you cannot classify it — use "custom" as the fallback
-- NEVER merge content from different sections into one section — keep them separate
-- If text appears BETWEEN sections (before the first heading, or orphaned paragraphs), create a new section for it:
-  - If it reads like a summary/objective → type "summary", title "Professional Summary"
-  - If it lists contact details → extract into the top-level name/email/phone/location fields instead
-  - Otherwise → type "custom", title "Additional Information"
-
-CONTENT FORMATTING RULES:
-1. For "experience": format each job as: first line = "Job Title | Company Name | Location" (pipe-separated), second line = "StartMonth StartYear - EndMonth EndYear" (or "Present"), then each bullet as a separate string (no bullet character). If job title and company are on separate lines in original, join them with pipe.
-2. For "education": first line = "Degree in Field | Institution | Location", next lines for GPA, honors, relevant coursework. If degree and institution are on separate lines, join with pipe.
-3. For "skills": if comma-separated like "JavaScript, Python, React" → split into ["JavaScript", "Python", "React"]. If categorized like "Languages: JS, Python" → keep as "Languages: JS, Python". If bullet-listed → one skill per content item.
-4. For "summary": join all paragraph text into one or two content strings
-5. For "certifications": each cert as "Cert Name | Issuing Org | Year"
-6. For "languages": each as "Language - Proficiency Level"
-7. For "custom": keep each line as-is in content array
-8. Preserve ALL content from the original — do not summarize, shorten, or skip anything
-9. Fix broken lines: if a sentence is split across two lines in the raw text, join them into one content string
-10. Remove empty lines and duplicate whitespace but keep meaningful line breaks
-11. Keep dates in their original format (do not convert between formats)`;
-
-    const userPrompt = `Parse this resume text into structured sections:\n\n${resumeText}`;
-
-    let resultText;
-
-    if (apiKey) {
-      const ai = new AiFormatter(apiKey);
-      resultText = await ai._callDirect(systemPrompt, userPrompt);
-    } else {
-      try {
-        const response = await fetch('/api/ai-analyze', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ resumeText, mode: 'parse' })
-        });
-        if (!response.ok) throw new Error('server');
-        const data = await response.json();
-        resultText = data.result || '';
-      } catch {
-        throw new Error('AI not configured. Paste a free Gemini or Groq API key.');
+    try {
+      const result = await ai.parseResume(resumeText);
+      if (!result || !result.sections || !Array.isArray(result.sections)) {
+        throw new Error('AI returned invalid structure');
       }
+      return result;
+    } catch (err) {
+      throw new Error(err.message || 'AI not configured or parsing failed. Paste a free Gemini API key.');
     }
-
-    // Parse the AI response
-    let cleaned = resultText.trim();
-    const fenceMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (fenceMatch) cleaned = fenceMatch[1].trim();
-    if (!cleaned.startsWith('{')) {
-      const start = cleaned.indexOf('{');
-      if (start >= 0) cleaned = cleaned.substring(start);
-    }
-    const lastBrace = cleaned.lastIndexOf('}');
-    if (lastBrace >= 0) cleaned = cleaned.substring(0, lastBrace + 1);
-
-    const result = JSON.parse(cleaned);
-
-    // Validate structure
-    if (!result || !result.sections || !Array.isArray(result.sections)) {
-      throw new Error('AI returned invalid structure');
-    }
-
-    return result;
   }
 
   _rebuildSectionsTab(secPanel, parsedData) {
@@ -1465,7 +1370,7 @@ CONTENT FORMATTING RULES:
     const row = createElement('div', '', { class: 'ai-key-inline' });
     row.style.cssText = 'display:flex;gap:var(--space-2);align-items:center;width:100%;margin-top:var(--space-2);';
 
-    const input = createElement('input', '', { type: 'password', placeholder: 'Paste Gemini or Groq API key...' });
+    const input = createElement('input', '', { type: 'password', placeholder: 'Paste Gemini or Gemini API key...' });
     input.style.cssText = 'flex:1;padding:var(--space-2);border:1px solid var(--border-primary);border-radius:var(--radius-md);background:var(--bg-secondary);color:var(--text-primary);font-size:var(--font-size-xs);';
     row.appendChild(input);
 
@@ -1486,12 +1391,7 @@ CONTENT FORMATTING RULES:
     geminiLink.style.cssText = 'font-size:var(--font-size-xs);color:var(--color-primary);white-space:nowrap;';
     row.appendChild(geminiLink);
 
-    const groqLink = createElement('a', 'Groq ↗', {});
-    groqLink.href = 'https://console.groq.com';
-    groqLink.target = '_blank';
-    groqLink.rel = 'noopener';
-    groqLink.style.cssText = 'font-size:var(--font-size-xs);color:var(--text-secondary);white-space:nowrap;';
-    row.appendChild(groqLink);
+
 
     parentEl.appendChild(row);
   }
@@ -2499,6 +2399,23 @@ CONTENT FORMATTING RULES:
     return dropZone;
   }
 
+  async _parseTextWithFallback(text) {
+    try {
+      const { AiFormatter } = await import('./ai-formatter.js');
+      const ai = new AiFormatter();
+      if (window.CC?.toast) window.CC.toast.show('Parsing document with AI...', 'info');
+      const parsed = await ai.parseResume(text);
+      if (parsed && typeof parsed === 'object') {
+        // Ensure sections exist
+        if (!parsed.sections) parsed.sections = [];
+        return parsed;
+      }
+    } catch (err) {
+      console.warn('AI parsing failed, falling back to local rule-based parsing:', err);
+    }
+    return this.parsePlainText(text);
+  }
+
   /**
    * Reads file as text
    * @param {File} file - File to read
@@ -2820,8 +2737,21 @@ CONTENT FORMATTING RULES:
         return null;
       }
 
-      // Parse the sanitized HTML into sections
-      const parsed = this.parseHTMLContent(div);
+      let parsed;
+      try {
+        const { AiFormatter } = await import('./ai-formatter.js');
+        const ai = new AiFormatter();
+        if (window.CC?.toast) window.CC.toast.show('Parsing DOCX with AI...', 'info');
+        parsed = await ai.parseResume(cleanText);
+        if (parsed && typeof parsed === 'object') {
+          if (!parsed.sections) parsed.sections = [];
+        } else {
+          throw new Error('Invalid AI parse result');
+        }
+      } catch (err) {
+        console.warn('AI parsing failed, falling back to local rule-based HTML parsing:', err);
+        parsed = this.parseHTMLContent(div);
+      }
       parsed.sourceFile = file.name;
       parsed.sourceType = 'docx';
       parsed.images = images;
@@ -2850,6 +2780,38 @@ CONTENT FORMATTING RULES:
     let progressOverlay = null;
 
     try {
+      // Feature: Native AI Multi-modal parsing bypasses messy local PDF.js extraction!
+      try {
+        const { AiFormatter } = await import('./ai-formatter.js');
+        const ai = new AiFormatter();
+        if (window.CC?.toast) window.CC.toast.show('Native AI Document Parsing...', 'info');
+        
+        const arrayBuffer = await file.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuffer);
+        let binary = '';
+        for (let i = 0; i < bytes.byteLength; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        const base64Str = btoa(binary);
+        
+        const parsed = await ai.parseDocument(base64Str, 'application/pdf');
+        
+        if (parsed && typeof parsed === 'object') {
+          if (!parsed.sections) parsed.sections = [];
+          parsed.sourceFile = file.name;
+          parsed.sourceType = 'pdf';
+          
+          const confirmed = await this.showFieldMapping(parsed);
+          if (!confirmed) return null;
+          
+          const result = await this.finalizeImportedDocument(this.parsedData, { sourceType: 'pdf' });
+          if (result.verified && window.CC?.router) window.CC.router.navigate(result.route);
+          return result.document;
+        }
+      } catch (err) {
+        console.warn('Native AI parse failed, falling back to local text extraction', err);
+      }
+
       const pdfjsLib = await import('https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/+esm');
       pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs';
 
@@ -2956,7 +2918,7 @@ CONTENT FORMATTING RULES:
         progressBarFill.style.width = '90%';
       }
 
-      const parsed = this.parsePlainText(fullText);
+      const parsed = await this._parseTextWithFallback(fullText);
       parsed.sourceFile = file.name;
       parsed.sourceType = 'pdf';
       parsed._rawText = fullText;
@@ -2986,6 +2948,44 @@ CONTENT FORMATTING RULES:
       if (progressOverlay && progressOverlay.parentNode) progressOverlay.remove();
       console.error('PDF import failed:', err);
       throw new Error('Failed to read PDF. The file may be corrupted, encrypted, or scanned without a text layer.');
+    }
+  }
+
+  // ==================== IMAGE IMPORT (Multimodal) ====================
+  async importImage(file) {
+    if (window.CC?.toast) window.CC.toast.show('Parsing Image with AI...', 'info');
+    try {
+      const { AiFormatter } = await import('./ai-formatter.js');
+      const ai = new AiFormatter();
+      
+      const arrayBuffer = await file.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
+      let binary = '';
+      for (let i = 0; i < bytes.byteLength; i++) {
+          binary += String.fromCharCode(bytes[i]);
+      }
+      const base64Str = btoa(binary);
+      
+      const parsed = await ai.parseDocument(base64Str, file.type);
+      
+      if (parsed && typeof parsed === 'object') {
+        if (!parsed.sections) parsed.sections = [];
+        parsed.sourceFile = file.name;
+        parsed.sourceType = 'image';
+        
+        const confirmed = await this.showFieldMapping(parsed);
+        if (!confirmed) return null;
+        
+        const result = await this.finalizeImportedDocument(this.parsedData, { sourceType: 'image' });
+        if (result.verified && window.CC?.router) window.CC.router.navigate(result.route);
+        return result.document;
+      } else {
+        throw new Error('Invalid AI parse result');
+      }
+    } catch (err) {
+      console.error('Image import failed:', err);
+      if (window.CC?.toast) window.CC.toast.show('Failed to parse image. Ensure API key is configured.', 'error');
+      throw err;
     }
   }
 
@@ -3302,3 +3302,4 @@ CONTENT FORMATTING RULES:
 }
 
 export default ImportManager;
+
