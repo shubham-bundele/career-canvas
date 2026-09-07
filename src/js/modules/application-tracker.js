@@ -537,7 +537,32 @@ export class ApplicationTracker {
               return false; // keep modal open
             }
           },
-          { label: 'Close', type: 'secondary', handler: () => window.CC.modal.close() }
+          {
+            label: '🔊 Read Aloud',
+            type: 'secondary',
+            handler: () => {
+              try {
+                if (!('speechSynthesis' in window)) {
+                  if (window.CC.toast) window.CC.toast.show('Read-aloud is not supported in this browser.', 'warning');
+                  return false;
+                }
+                if (window.speechSynthesis.speaking) {
+                  window.speechSynthesis.cancel();
+                  if (window.CC.toast) window.CC.toast.show('Stopped reading.', 'info');
+                } else {
+                  const utterance = new SpeechSynthesisUtterance(result.slice(0, 4000));
+                  utterance.lang = 'en-US';
+                  utterance.rate = 1;
+                  window.speechSynthesis.speak(utterance);
+                  if (window.CC.toast) window.CC.toast.show('Reading aloud — press again to stop.', 'info');
+                }
+              } catch {
+                if (window.CC.toast) window.CC.toast.show('Could not start read-aloud.', 'error');
+              }
+              return false; // keep modal open
+            }
+          },
+          { label: 'Close', type: 'secondary', handler: () => { try { window.speechSynthesis?.cancel(); } catch { /* ignore */ } window.CC.modal.close(); } }
         ]
       });
     } catch (err) {

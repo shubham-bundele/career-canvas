@@ -532,17 +532,33 @@ export class SettingsPanel {
 
     const btnKeySave = this.el.querySelector('#btn-ai-key-save');
     if (btnKeySave) {
-      btnKeySave.addEventListener('click', () => {
+      btnKeySave.addEventListener('click', async () => {
         const v = this.el.querySelector('#setting-ai-key')?.value.trim() || '';
         if (!v) {
           if (window.CC?.toast) window.CC.toast.show('Paste a key first', 'warning');
           return;
         }
-        localStorage.setItem('cc_ai_api_key', v);
-        if (v.startsWith('gsk_')) localStorage.setItem('cc_ai_groq_key', v);
-        else localStorage.setItem('cc_ai_gemini_key', v);
-        this.updateAiProviderLabel();
-        if (window.CC?.toast) window.CC.toast.show('API key saved in this browser', 'success');
+        btnKeySave.disabled = true;
+        const original = btnKeySave.textContent;
+        btnKeySave.textContent = 'Checking…';
+        try {
+          const { AiFormatter } = await import('./ai-formatter.js');
+          const check = await AiFormatter.validateKey(v);
+          if (check.ok) {
+            AiFormatter.setApiKey(v);
+            this.updateAiProviderLabel();
+            if (window.CC?.toast) window.CC.toast.show(`API key valid (${check.provider === 'groq' ? 'Groq' : 'Gemini'})`, 'success');
+          } else if (check.offline) {
+            AiFormatter.setApiKey(v);
+            this.updateAiProviderLabel();
+            if (window.CC?.toast) window.CC.toast.show('Could not reach provider (offline?) — key saved anyway', 'warning');
+          } else {
+            if (window.CC?.toast) window.CC.toast.show(check.error || 'Invalid key — not saved', 'error');
+          }
+        } finally {
+          btnKeySave.disabled = false;
+          btnKeySave.textContent = original;
+        }
       });
     }
 

@@ -92,7 +92,7 @@ const CORE = [
   ['src/js/modules/export-manager.js', ['ExportManager']],
   ['src/js/modules/import-manager.js', ['ImportManager', 'parsePlainText', 'renderImportView']],
   ['src/js/modules/ats-checker.js', ['ATSChecker']],
-  ['src/js/modules/ai-formatter.js', ['AiFormatter', 'getSystemPrompts', 'hasLocalOption']],
+  ['src/js/modules/ai-formatter.js', ['AiFormatter', 'getSystemPrompts', 'hasLocalOption', 'validateKey']],
   ['src/js/modules/local-ai.js', ['LocalAI', 'process', 'getEmbeddings', 'cosineSimilarity']],
   ['src/js/modules/advanced-local-ai.js', ['AdvancedLocalAI', 'process', 'isWebGPUSupported']],
   ['src/js/modules/editor.js', ['handleExport']],

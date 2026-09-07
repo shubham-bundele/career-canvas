@@ -144,6 +144,35 @@ export class AiFormatter {
     return '';
   }
 
+  /**
+   * Validate a key against its provider (lightweight models-list ping).
+   * @returns {Promise<{ok:boolean, provider:string, error?:string, offline?:boolean}>}
+   */
+  static async validateKey(rawKey) {
+    const key = String(rawKey || '').trim();
+    if (!key) return { ok: false, provider: 'unknown', error: 'Empty key' };
+    const provider = key.startsWith('gsk_') ? 'groq' : 'gemini';
+    const url = provider === 'groq'
+      ? 'https://api.groq.com/openai/v1/models'
+      : `https://generativelanguage.googleapis.com/v1beta/models?pageSize=1&key=${encodeURIComponent(key)}`;
+    const headers = provider === 'groq' ? { Authorization: `Bearer ${key}` } : {};
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12000);
+    try {
+      const res = await fetch(url, { headers, signal: controller.signal });
+      if (res.ok) return { ok: true, provider };
+      if (res.status === 401 || res.status === 403) {
+        return { ok: false, provider, error: 'Key rejected by provider (invalid or revoked)' };
+      }
+      return { ok: false, provider, error: `Provider returned ${res.status}` };
+    } catch (err) {
+      if (err?.name === 'AbortError') return { ok: false, provider, error: 'Validation timed out' };
+      return { ok: false, provider, error: 'Network error', offline: true };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   // ==================== Server proxy call ====================
 
   async _callServer(resumeText, mode, context) {

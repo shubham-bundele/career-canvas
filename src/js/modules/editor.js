@@ -4549,14 +4549,33 @@ export class ResumeEditor {
           </div>
         `;
         aiContent.insertBefore(keyRow, aiContent.firstChild);
-        keyRow.querySelector('#smart-format-key-save').addEventListener('click', () => {
+        keyRow.querySelector('#smart-format-key-save').addEventListener('click', async (e) => {
+          const btn = e.currentTarget;
           const k = keyRow.querySelector('#smart-format-ai-key').value.trim();
           if (!k) return;
-          AiFormatter.setApiKey(k);
-          ai.apiKey = k;
-          ai.provider = ai._detectProvider(k);
-          keyRow.remove();
-          if (window.CC?.toast) window.CC.toast.show('API key saved', 'success');
+          btn.disabled = true;
+          const original = btn.textContent;
+          btn.textContent = 'Checking…';
+          try {
+            const check = await AiFormatter.validateKey(k);
+            if (check.ok || check.offline) {
+              AiFormatter.setApiKey(k);
+              ai.apiKey = k;
+              ai.provider = ai._detectProvider(k);
+              keyRow.remove();
+              if (window.CC?.toast) {
+                window.CC.toast.show(
+                  check.ok ? `API key valid (${check.provider === 'groq' ? 'Groq' : 'Gemini'})` : 'Could not reach provider — key saved anyway',
+                  check.ok ? 'success' : 'warning'
+                );
+              }
+            } else if (window.CC?.toast) {
+              window.CC.toast.show(check.error || 'Invalid key — not saved', 'error');
+            }
+          } finally {
+            btn.disabled = false;
+            btn.textContent = original;
+          }
         });
       };
 
