@@ -114,7 +114,6 @@ export class ApplicationTracker {
   renderApplicationList() {
     const list = this.el.querySelector('#application-list');
     if (!list) return;
-
     let filtered = this.applications;
     if (this.filter !== 'all') {
       filtered = filtered.filter(a => a.status === this.filter);
@@ -154,6 +153,7 @@ export class ApplicationTracker {
             <div class="d-flex items-center gap-2 mb-1">
               <strong>${escapeHtml(app.position || 'Untitled Position')}</strong>
               <span class="badge badge--${statusClass}">${statusLabel}</span>
+              ${this.followUpBadge(app)}
             </div>
             <div class="text-muted text-sm">
               ${escapeHtml(app.company || '')}${app.location ? ' · ' + escapeHtml(app.location) : ''}
@@ -183,8 +183,22 @@ export class ApplicationTracker {
     });
   }
 
-  getStatusClass(status) {
-    const map = {
+  /** Days since application with no status change (0 when not applicable). */
+  followUpDays(app) {
+    if (!app || app.status !== 'applied' || !app.appliedDate) return 0;
+    const t = new Date(app.appliedDate).getTime();
+    if (Number.isNaN(t)) return 0;
+    return Math.floor((Date.now() - t) / 86400000);
+  }
+
+  /** Nudge badge for stale applications (pure HTML string, unit-tested). */
+  followUpBadge(app) {
+    const days = this.followUpDays(app);
+    if (days < 7) return '';
+    return `<span class="badge badge--warning" title="Applied ${days} days ago with no update — consider following up">⏰ Follow up (${days}d)</span>`;
+  }
+
+  getStatusClass(status) {    const map = {
       saved: 'info', applied: 'primary', screening: 'warning',
       interview: 'warning', offer: 'success', accepted: 'success',
       rejected: 'danger', withdrawn: 'muted'

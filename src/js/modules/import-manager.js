@@ -2472,39 +2472,34 @@ export class ImportManager {
    * @param {string} acceptedTypes - Accepted file types
    * @returns {Promise<void>}
    */
-  async showFilePicker(acceptedTypes = '.json,.txt') {
+  async showFilePicker(acceptedTypes = '.json,.txt,.md,.pdf,.docx,.html,.png,.jpg,.jpeg,.webp') {
     return new Promise((resolve, reject) => {
       const input = createElement('input', '', {
         type: 'file',
         accept: acceptedTypes
       });
+      input.multiple = true;
 
       input.style.display = 'none';
       document.body.appendChild(input);
 
       input.addEventListener('change', async (e) => {
-        const file = e.target.files[0];
-        if (!file) {
-          document.body.removeChild(input);
+        const files = [...(e.target.files || [])];
+        document.body.removeChild(input);
+        if (!files.length) {
           resolve(null);
           return;
         }
 
         try {
-          // Determine file type and import
-          if (file.name.endsWith('.json')) {
-            await this.importJSON(file);
-          } else if (file.name.endsWith('.txt')) {
-            await this.importPlainText(file);
+          if (files.length === 1) {
+            await this.importFile(files[0]);
           } else {
-            throw new Error('Unsupported file type');
+            await this.importFileBatch(files);
           }
-
           resolve();
         } catch (error) {
           reject(error);
-        } finally {
-          document.body.removeChild(input);
         }
       });
 

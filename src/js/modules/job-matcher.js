@@ -1442,8 +1442,16 @@ export class JobMatcher {
       copy.archived = false;
       copy.linkedJobDescriptionId = r.jobDescriptionId || null;
       copy.linkedAnalysisId = r.id;
+      // Carry the JD target so the editor + tracker know what this copy is for
+      if (r.jobDescriptionTitleSnapshot || r.jobTitle) copy.targetRole = r.jobDescriptionTitleSnapshot || r.jobTitle;
       await this.db.put(STORES.DOCUMENTS, copy);
-      if (window.CC?.toast) window.CC.toast.show(`Tailored copy created: "${copy.name}"`, 'success');
+      const missing = (r.missingTerms || r.missing || []).length;
+      if (window.CC?.toast) window.CC.toast.show(
+        missing > 0
+          ? `Tailored copy created with ${missing} missing keyword${missing === 1 ? '' : 's'} to address`
+          : `Tailored copy created: "${copy.name}"`,
+        'success'
+      );
       if (window.CC?.router) window.CC.router.navigate(`/editor/${copy.id}`);
     } catch (e) {
       if (window.CC?.toast) window.CC.toast.show('Failed to create tailored copy', 'error');
