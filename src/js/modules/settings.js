@@ -106,6 +106,56 @@ export class SettingsPanel {
             </div>
           </section>
 
+          <!-- AI -->
+          <section class="settings-section card mb-4">
+            <div class="card-header"><h2>AI</h2></div>
+            <div class="card-body">
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <span class="settings-label">Cloud API Key (Gemini)</span>
+                  <span class="settings-desc">Optional. Needed only for local development — on Vercel the server key is used automatically. Stored in this browser only.</span>
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info" style="flex:1">
+                  <input type="password" id="setting-ai-key" class="form-input" placeholder="Paste Gemini API key (AIza...)" autocomplete="off" style="width:100%">
+                  <span class="settings-desc" id="setting-ai-provider"></span>
+                </div>
+                <div style="display:flex;gap:8px;">
+                  <button class="btn btn-sm btn-primary" id="btn-ai-key-save">Save</button>
+                  <button class="btn btn-sm btn-outline" id="btn-ai-key-clear">Clear</button>
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <span class="settings-label">Local AI (offline)</span>
+                  <span class="settings-desc">Summarize, condense, tone check &amp; semantic match fully on-device. Downloads ~150–650 MB once.</span>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="setting-local-ai">
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <span class="settings-label">Advanced AI — WebGPU (offline)</span>
+                  <span class="settings-desc" id="setting-webgpu-status">Full Llama-3.1 8B in the browser. Needs WebGPU + ~5 GB free space.</span>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="setting-advanced-ai">
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <span class="settings-label">Local AI Cache</span>
+                  <span class="settings-desc">Clear downloaded on-device models and cached embeddings</span>
+                </div>
+                <button class="btn btn-sm btn-outline" id="btn-clear-local-ai">Clear Cache</button>
+              </div>
+            </div>
+          </section>
+
           <!-- Data & Storage -->
           <section class="settings-section card mb-4">
             <div class="card-header"><h2>Data &amp; Storage</h2></div>
@@ -308,6 +358,9 @@ export class SettingsPanel {
     const reduceMotion = localStorage.getItem('cc_reduce_motion') === 'true';
     const highContrast = localStorage.getItem('cc_high_contrast') === 'true';
     const uiFontSize = localStorage.getItem('cc_ui_fontsize') || 'medium';
+    const localAI = localStorage.getItem('cc_local_ai_enabled') === 'true';
+    const advAI = localStorage.getItem('cc_advanced_ai_enabled') === 'true';
+    const aiKey = localStorage.getItem('cc_ai_api_key') || '';
 
     this.populateThemeDropdown();
     this.setVal('setting-pagesize', pageSize);
@@ -319,6 +372,12 @@ export class SettingsPanel {
     this.setChecked('setting-reduce-motion', reduceMotion);
     this.setChecked('setting-high-contrast', highContrast);
     this.setVal('setting-ui-fontsize', uiFontSize);
+    this.setChecked('setting-local-ai', localAI);
+    this.setChecked('setting-advanced-ai', advAI);
+    const keyInput = this.el.querySelector('#setting-ai-key');
+    if (keyInput && aiKey) keyInput.value = aiKey;
+    this.updateAiProviderLabel();
+    this.updateWebgpuStatus();
   }
 
   populateThemeDropdown() {
@@ -372,6 +431,24 @@ export class SettingsPanel {
   setChecked(id, val) {
     const el = this.el.querySelector(`#${id}`);
     if (el) el.checked = val;
+  }
+
+  updateAiProviderLabel() {
+    const label = this.el.querySelector('#setting-ai-provider');
+    if (!label) return;
+    const key = (this.el.querySelector('#setting-ai-key')?.value || localStorage.getItem('cc_ai_api_key') || '').trim();
+    if (!key) { label.textContent = 'No key saved — cloud AI will use the server proxy when deployed.'; return; }
+    const name = key.startsWith('gsk_') ? 'Groq' : 'Gemini';
+    label.textContent = `Saved key provider: ${name}.`;
+  }
+
+  updateWebgpuStatus() {
+    const el = this.el.querySelector('#setting-webgpu-status');
+    if (!el) return;
+    const ok = typeof navigator !== 'undefined' && !!navigator.gpu;
+    el.textContent = ok
+      ? 'WebGPU detected — Advanced AI can run on this device (~5 GB download once).'
+      : 'WebGPU not detected in this browser — Advanced AI needs Chrome/Edge 113+ with WebGPU.';
   }
 
   bindEvents() {
@@ -435,6 +512,67 @@ export class SettingsPanel {
       localStorage.setItem('cc_ui_fontsize', e.target.value);
       document.documentElement.setAttribute('data-ui-fontsize', e.target.value);
     });
+
+    on('setting-local-ai', 'change', (e) => {
+      localStorage.setItem('cc_local_ai_enabled', e.target.checked);
+      if (window.CC?.toast) window.CC.toast.show(e.target.checked ? 'Local AI enabled (models download on first use)' : 'Local AI disabled', 'info');
+    });
+
+    on('setting-advanced-ai', 'change', (e) => {
+      if (e.target.checked && !(typeof navigator !== 'undefined' && navigator.gpu)) {
+        e.target.checked = false;
+        if (window.CC?.toast) window.CC.toast.show('WebGPU not available — Advanced AI needs Chrome/Edge 113+', 'error');
+        return;
+      }
+      localStorage.setItem('cc_advanced_ai_enabled', e.target.checked);
+      if (window.CC?.toast) window.CC.toast.show(e.target.checked ? 'Advanced AI enabled (model downloads on first use)' : 'Advanced AI disabled', 'info');
+    });
+
+    on('setting-ai-key', 'input', () => this.updateAiProviderLabel());
+
+    const btnKeySave = this.el.querySelector('#btn-ai-key-save');
+    if (btnKeySave) {
+      btnKeySave.addEventListener('click', () => {
+        const v = this.el.querySelector('#setting-ai-key')?.value.trim() || '';
+        if (!v) {
+          if (window.CC?.toast) window.CC.toast.show('Paste a key first', 'warning');
+          return;
+        }
+        localStorage.setItem('cc_ai_api_key', v);
+        if (v.startsWith('gsk_')) localStorage.setItem('cc_ai_groq_key', v);
+        else localStorage.setItem('cc_ai_gemini_key', v);
+        this.updateAiProviderLabel();
+        if (window.CC?.toast) window.CC.toast.show('API key saved in this browser', 'success');
+      });
+    }
+
+    const btnKeyClear = this.el.querySelector('#btn-ai-key-clear');
+    if (btnKeyClear) {
+      btnKeyClear.addEventListener('click', () => {
+        localStorage.removeItem('cc_ai_api_key');
+        const inp = this.el.querySelector('#setting-ai-key');
+        if (inp) inp.value = '';
+        this.updateAiProviderLabel();
+        if (window.CC?.toast) window.CC.toast.show('API key removed', 'info');
+      });
+    }
+
+    const btnClearLocal = this.el.querySelector('#btn-clear-local-ai');
+    if (btnClearLocal) {
+      btnClearLocal.addEventListener('click', async () => {
+        try {
+          if (typeof indexedDB !== 'undefined') indexedDB.deleteDatabase('cc-local-ai');
+          if (window.caches) {
+            for (const k of await caches.keys()) {
+              if (/transformers|mlc|webllm/i.test(k)) await caches.delete(k);
+            }
+          }
+          if (window.CC?.toast) window.CC.toast.show('Local AI cache cleared', 'success');
+        } catch {
+          if (window.CC?.toast) window.CC.toast.show('Could not clear cache', 'error');
+        }
+      });
+    }
 
     const btnExportAll = this.el.querySelector('#btn-export-all');
     if (btnExportAll) {

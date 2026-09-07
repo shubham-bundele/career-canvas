@@ -554,6 +554,25 @@ export class JobMatcher {
       const estimate = this.calculateEstimate(comparison);
       const requirements = this.extractRequirements(rawJD);
 
+      // Optional on-device semantic similarity (only when Local AI is enabled).
+      // Never blocks or fails the keyword analysis.
+      let semanticScore = null;
+      try {
+        const { LocalAI } = await import('./local-ai.js');
+        if (LocalAI.isEnabled()) {
+          setStatus('Computing semantic similarity (on-device)...');
+          await this.tick();
+          const [resumeVec, jdVec] = await Promise.all([
+            LocalAI.getEmbeddings(resumeText),
+            LocalAI.getEmbeddings(rawJD),
+          ]);
+          if (this.operationCancelled || this.currentOperationId !== opId) return this.showSetup();
+          if (resumeVec && jdVec) semanticScore = Math.round(LocalAI.cosineSimilarity(resumeVec, jdVec) * 100);
+        }
+      } catch (e) {
+        console.warn('Semantic similarity skipped:', e?.message || e);
+      }
+
       // Save the JD if not already saved
       await this.saveCurrentJD();
 
@@ -577,6 +596,7 @@ export class JobMatcher {
         missingTerms: comparison.missing,
         resumeOnlyTerms: comparison.resumeOnly,
         requirements,
+        semanticScore,
         dismissedSuggestionIds: [],
         staleStatus: 'current'
       };
@@ -941,6 +961,11 @@ export class JobMatcher {
     const ro = r.resumeOnlyTerms || r.resumeOnly || [];
     stats.innerHTML = `<span class="jm-stat"><strong>${m.length}</strong> matched</span><span class="jm-stat-sep">·</span><span class="jm-stat"><strong>${mi.length}</strong> missing</span><span class="jm-stat-sep">·</span><span class="jm-stat"><strong>${ro.length}</strong> resume-only</span>`;
     details.appendChild(stats);
+    if (r.semanticScore !== null && r.semanticScore !== undefined) {
+      const sem = createElement('p', `Semantic similarity (on-device AI): ${r.semanticScore}%`, { class: 'jm-semantic-stat' });
+      sem.style.cssText = 'font-size:12px;color:var(--text-secondary);margin-top:6px;';
+      details.appendChild(sem);
+    }
     sc.appendChild(details);
     w.appendChild(sc);
 

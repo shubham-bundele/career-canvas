@@ -64,7 +64,7 @@ const standardReferences = {
     // References section
     const referencesSection = sections.find(s => s.type === 'references' && shouldRender(s));
     if (referencesSection) {
-      const items = referencesSection.items.filter(shouldRenderItem);
+      const items = (referencesSection.items || []).filter(shouldRenderItem);
 
       items.forEach((item, index) => {
         html += `<div class="reference-entry" style="margin-bottom: 24px; padding-bottom: 20px; ${index < items.length - 1 ? 'border-bottom: 1px solid #e5e7eb;' : ''}">`;
@@ -159,7 +159,7 @@ const professionalReferences = {
     // References
     const referencesSection = sections.find(s => s.type === 'references' && shouldRender(s));
     if (referencesSection) {
-      const items = referencesSection.items.filter(shouldRenderItem);
+      const items = (referencesSection.items || []).filter(shouldRenderItem);
 
       items.forEach((item, index) => {
         html += `<div class="reference-entry" style="margin-bottom: 28px;">`;
@@ -259,7 +259,7 @@ const academicReferences = {
     // References
     const referencesSection = sections.find(s => s.type === 'references' && shouldRender(s));
     if (referencesSection) {
-      const items = referencesSection.items.filter(shouldRenderItem);
+      const items = (referencesSection.items || []).filter(shouldRenderItem);
 
       items.forEach((item, index) => {
         html += `<div class="reference-entry" style="margin-bottom: 26px;">`;
@@ -369,7 +369,7 @@ const modernReferences = {
     // References as cards
     const referencesSection = sections.find(s => s.type === 'references' && shouldRender(s));
     if (referencesSection) {
-      const items = referencesSection.items.filter(shouldRenderItem);
+      const items = (referencesSection.items || []).filter(shouldRenderItem);
 
       items.forEach((item) => {
         html += `<div class="reference-entry" style="margin-bottom: 20px; padding: 18px; border: 1px solid #e5e7eb; border-radius: 8px; background-color: #fafafa;">`;
@@ -463,7 +463,7 @@ const executiveReferences = {
     // References
     const referencesSection = sections.find(s => s.type === 'references' && shouldRender(s));
     if (referencesSection) {
-      const items = referencesSection.items.filter(shouldRenderItem);
+      const items = (referencesSection.items || []).filter(shouldRenderItem);
 
       items.forEach((item, index) => {
         html += `<div class="reference-entry" style="margin-bottom: 28px; padding-bottom: 24px; ${index < items.length - 1 ? 'border-bottom: 1px solid #d1d5db;' : ''}">`;
@@ -558,7 +558,7 @@ const minimalReferences = {
     // References - ultra clean
     const referencesSection = sections.find(s => s.type === 'references' && shouldRender(s));
     if (referencesSection) {
-      const items = referencesSection.items.filter(shouldRenderItem);
+      const items = (referencesSection.items || []).filter(shouldRenderItem);
 
       items.forEach((item, index) => {
         html += `<div class="reference-entry" style="margin-bottom: 28px; padding-left: 16px; border-left: 2px solid ${index === 0 ? 'var(--accent-color, #374151)' : '#e5e7eb'};">`;

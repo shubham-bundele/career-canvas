@@ -349,7 +349,7 @@ const atsClassic = {
       html += `<h2 class="resume-section-title" style="text-align: center; text-transform: uppercase;">${e(section.title || section.type)}</h2>`;
       html += `<hr class="resume-divider">`;
 
-      const items = section.items.filter(shouldRenderItem);
+      const items = (section.items || []).filter(shouldRenderItem);
 
       if (getSectionType(section) === 'summary' || getSectionType(section) === 'objective') {
         items.forEach(item => {
@@ -533,7 +533,7 @@ const atsModern = {
       html += `<div class="resume-section">`;
       html += `<h2 class="resume-section-title" style="color: var(--accent-color, #2563eb); border-bottom: 2px solid var(--accent-color, #2563eb); padding-bottom: 4px;">${e(section.title || section.type)}</h2>`;
 
-      const items = section.items.filter(shouldRenderItem);
+      const items = (section.items || []).filter(shouldRenderItem);
 
       if (getSectionType(section) === 'summary' || getSectionType(section) === 'objective') {
         items.forEach(item => {
@@ -723,7 +723,7 @@ const atsCompact = {
       html += `<div class="resume-section" style="margin-bottom: 12px;">`;
       html += `<h2 class="resume-section-title" style="font-size: 12px; margin-bottom: 4px;">${e(section.title || section.type).toUpperCase()}</h2>`;
 
-      const items = section.items.filter(shouldRenderItem);
+      const items = (section.items || []).filter(shouldRenderItem);
 
       if (getSectionType(section) === 'summary' || getSectionType(section) === 'objective') {
         items.forEach(item => {
@@ -881,7 +881,7 @@ const atsExecutive = {
       html += `<div class="resume-section" style="margin-bottom: 24px;">`;
       html += `<h2 class="resume-section-title" style="font-size: 16px; font-weight: 700; text-transform: uppercase; border-bottom: 2px solid #000; padding-bottom: 4px; margin-bottom: 12px;">${e(section.title || section.type)}</h2>`;
 
-      const items = section.items.filter(shouldRenderItem);
+      const items = (section.items || []).filter(shouldRenderItem);
 
       if (getSectionType(section) === 'summary' || getSectionType(section) === 'objective') {
         items.forEach(item => {
@@ -1044,13 +1044,13 @@ const atsTechnical = {
       html += `<div class="resume-section">`;
       html += `<h2 class="resume-section-title">TECHNICAL SKILLS</h2>`;
       html += `<hr class="resume-divider">`;
-      skillsSection.items.filter(shouldRenderItem).forEach(item => {
+      (skillsSection.items || []).filter(shouldRenderItem).forEach(item => {
         html += `<div class="resume-skills-item">`;
         if (item.category) {
           html += `<strong>${e(item.category)}:</strong> `;
         }
-        if (item.skills && Array.isArray(item.skills)) {
-          html += `<span style="font-family: 'Courier New', monospace;">${e(item.skills.join(', '))}</span>`;
+        if (item.skills) {
+          html += `<span style="font-family: 'Courier New', monospace;">${e(Array.isArray(item.skills) ? item.skills.join(', ') : item.skills)}</span>`;
         }
         html += `</div>`;
       });
@@ -1063,7 +1063,7 @@ const atsTechnical = {
       html += `<h2 class="resume-section-title">${e(section.title || section.type).toUpperCase()}</h2>`;
       html += `<hr class="resume-divider">`;
 
-      const items = section.items.filter(shouldRenderItem);
+      const items = (section.items || []).filter(shouldRenderItem);
 
       if (getSectionType(section) === 'experience') {
         items.forEach(item => {
@@ -1175,7 +1175,7 @@ const atsGraduate = {
       html += `<div class="resume-section">`;
       html += `<h2 class="resume-section-title">EDUCATION</h2>`;
       html += `<hr class="resume-divider">`;
-      educationSection.items.filter(shouldRenderItem).forEach(item => {
+      (educationSection.items || []).filter(shouldRenderItem).forEach(item => {
         html += `<div class="resume-entry">`;
         if (item.degree) {
           html += `<div><strong>${e(item.degree)}</strong>`;
@@ -1210,7 +1210,7 @@ const atsGraduate = {
       html += `<h2 class="resume-section-title">${e(section.title || section.type).toUpperCase()}</h2>`;
       html += `<hr class="resume-divider">`;
 
-      const items = section.items.filter(shouldRenderItem);
+      const items = (section.items || []).filter(shouldRenderItem);
 
       if (getSectionType(section) === 'experience') {
         items.forEach(item => {
@@ -1323,7 +1323,7 @@ const atsFederal = {
       html += `<h2 class="resume-section-title">${e(section.title || section.type).toUpperCase()}</h2>`;
       html += `<hr class="resume-divider">`;
 
-      const items = section.items.filter(shouldRenderItem);
+      const items = (section.items || []).filter(shouldRenderItem);
 
       if (getSectionType(section) === 'experience') {
         items.forEach(item => {
@@ -1439,7 +1439,7 @@ const atsAcademic = {
       html += `<h2 class="resume-section-title">${e(section.title || section.type).toUpperCase()}</h2>`;
       html += `<hr class="resume-divider">`;
 
-      const items = section.items.filter(shouldRenderItem);
+      const items = (section.items || []).filter(shouldRenderItem);
 
       if (getSectionType(section) === 'publications') {
         items.forEach(item => {
@@ -1551,7 +1551,7 @@ const atsInternational = {
       html += `<div class="resume-section">`;
       html += `<h2 class="resume-section-title">LANGUAGES</h2>`;
       html += `<hr class="resume-divider">`;
-      languagesSection.items.filter(shouldRenderItem).forEach(item => {
+      (languagesSection.items || []).filter(shouldRenderItem).forEach(item => {
         html += `<div class="resume-entry">`;
         if (item.language) {
           html += `<strong>${e(item.language)}</strong>`;
@@ -1568,7 +1568,7 @@ const atsInternational = {
       html += `<h2 class="resume-section-title">${e(section.title || section.type).toUpperCase()}</h2>`;
       html += `<hr class="resume-divider">`;
 
-      const items = section.items.filter(shouldRenderItem);
+      const items = (section.items || []).filter(shouldRenderItem);
 
       if (getSectionType(section) === 'experience') {
         items.forEach(item => {

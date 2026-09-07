@@ -143,13 +143,13 @@ const developerMono = {
       html += `<h2 class="resume-section-title" style="font-family: 'Courier New', monospace; font-size: 16px; font-weight: 700; color: var(--accent-color, #10b981); margin-bottom: 12px;">> TECHNICAL_SKILLS</h2>`;
 
       html += `<div style="border: 1px solid #e5e7eb; padding: 12px; background-color: #f9fafb;">`;
-      skillsSection.items.filter(shouldRenderItem).forEach(item => {
+      (skillsSection.items || []).filter(shouldRenderItem).forEach(item => {
         html += `<div style="margin-bottom: 8px;">`;
         if (item.category) {
           html += `<span style="font-family: 'Courier New', monospace; font-weight: 700; color: var(--accent-color, #10b981);">${e(item.category)}:</span> `;
         }
-        if (item.skills && Array.isArray(item.skills)) {
-          html += `<span style="font-family: 'Courier New', monospace; font-size: 13px;">${e(item.skills.join(' | '))}</span>`;
+        if (item.skills) {
+          html += `<span style="font-family: 'Courier New', monospace; font-size: 13px;">${e(Array.isArray(item.skills) ? item.skills.join(' | ') : item.skills)}</span>`;
         }
         html += `</div>`;
       });
@@ -162,7 +162,7 @@ const developerMono = {
       html += `<div class="resume-section" style="margin-bottom: 24px;">`;
       html += `<h2 class="resume-section-title" style="font-family: 'Courier New', monospace; font-size: 16px; font-weight: 700; color: var(--accent-color, #10b981); margin-bottom: 12px;">> ${e(section.title || section.type).toUpperCase().replace(/ /g, '_')}</h2>`;
 
-      const items = section.items.filter(shouldRenderItem);
+      const items = (section.items || []).filter(shouldRenderItem);
 
       if (getSectionType(section) === 'summary') {
         items.forEach(item => {
@@ -302,7 +302,7 @@ const engineeringBlueprint = {
       html += `<div class="resume-section" style="margin-bottom: 24px;">`;
       html += `<h2 class="resume-section-title" style="font-size: 16px; font-weight: 700; color: var(--accent-color, #1e40af); text-transform: uppercase; border-bottom: 2px solid var(--accent-color, #1e40af); padding-bottom: 4px; margin-bottom: 14px; letter-spacing: 1px;">${e(section.title || section.type)}</h2>`;
 
-      const items = section.items.filter(shouldRenderItem);
+      const items = (section.items || []).filter(shouldRenderItem);
 
       if (getSectionType(section) === 'summary') {
         items.forEach(item => {
@@ -444,7 +444,7 @@ const dataProfessional = {
       html += `<div class="resume-section" style="margin-bottom: 24px;">`;
       html += `<h2 style="font-size: 18px; font-weight: 700; color: var(--accent-color, #0891b2); border-bottom: 3px solid var(--accent-color, #0891b2); padding-bottom: 6px; margin-bottom: 14px;">${e(section.title || section.type).toUpperCase()}</h2>`;
 
-      const items = section.items.filter(shouldRenderItem);
+      const items = (section.items || []).filter(shouldRenderItem);
 
       if (getSectionType(section) === 'experience') {
         items.forEach(item => {
@@ -472,7 +472,7 @@ const dataProfessional = {
           if (item.category && item.skills) {
             html += `<div style="margin-bottom: 12px;">`;
             html += `<div style="font-weight: 700; color: var(--accent-color, #0891b2); margin-bottom: 4px;">${e(item.category)}</div>`;
-            html += `<div style="padding-left: 12px;">${e(item.skills.join(' • '))}</div>`;
+            html += `<div style="padding-left: 12px;">${e(Array.isArray(item.skills) ? item.skills.join(' • ') : item.skills)}</div>`;
             html += `</div>`;
           }
         });
@@ -554,7 +554,7 @@ const productBuilder = {
       html += `<div style="margin-bottom: 24px;">`;
       html += `<h2 style="font-size: 18px; font-weight: 700; color: var(--accent-color, #7c3aed); margin-bottom: 12px;">${e(section.title || section.type).toUpperCase()}</h2>`;
 
-      const items = section.items.filter(shouldRenderItem);
+      const items = (section.items || []).filter(shouldRenderItem);
 
       if (getSectionType(section) === 'experience') {
         items.forEach(item => {
@@ -649,7 +649,7 @@ const cybersecurityClean = {
     if (certSection) {
       html += `<div style="margin-bottom: 24px;">`;
       html += `<h2 style="font-size: 16px; font-weight: 700; color: var(--accent-color, #dc2626); border-bottom: 2px solid var(--accent-color, #dc2626); padding-bottom: 4px; margin-bottom: 12px;">CERTIFICATIONS</h2>`;
-      certSection.items.filter(shouldRenderItem).forEach(item => {
+      (certSection.items || []).filter(shouldRenderItem).forEach(item => {
         html += `<div style="margin-bottom: 8px;">`;
         if (item.name) html += `<strong>${e(item.name)}</strong>`;
         if (item.issuer) html += ` - ${e(item.issuer)}`;
@@ -663,7 +663,7 @@ const cybersecurityClean = {
       html += `<div style="margin-bottom: 24px;">`;
       html += `<h2 style="font-size: 16px; font-weight: 700; color: var(--accent-color, #dc2626); border-bottom: 2px solid var(--accent-color, #dc2626); padding-bottom: 4px; margin-bottom: 12px;">${e(section.title || section.type).toUpperCase()}</h2>`;
 
-      const items = section.items.filter(shouldRenderItem);
+      const items = (section.items || []).filter(shouldRenderItem);
 
       if (getSectionType(section) === 'experience') {
         items.forEach(item => {

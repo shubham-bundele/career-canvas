@@ -194,10 +194,23 @@ export class LocalAI {
 
     if (mode === 'tone') {
       const classifier = await this.getPipeline('text-classification');
-      const out = await classifier(resumeText);
+      const out = await classifier(this.preprocess(resumeText));
       // It returns [{ label: "POSITIVE", score: 0.99 }]
       // Just return a message indicating the sentiment.
       return `The sentiment of this text is ${out[0].label} (Confidence: ${Math.round(out[0].score * 100)}%).`;
+    }
+
+    if (mode === 'semantic-match') {
+      if (!context || !String(context).trim()) {
+        throw new Error("semantic-match needs a job description in 'context'.");
+      }
+      const [resumeVec, jdVec] = await Promise.all([
+        this.getEmbeddings(resumeText),
+        this.getEmbeddings(context),
+      ]);
+      const score = Math.round(this.cosineSimilarity(resumeVec, jdVec) * 100);
+      const verdict = score >= 75 ? 'Strong match' : score >= 50 ? 'Moderate match' : 'Weak match';
+      return `${verdict}: semantic similarity ${score}% (offline embeddings).`;
     }
 
     throw new Error('Local AI failed to process the request.');

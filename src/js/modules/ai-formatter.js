@@ -99,7 +99,16 @@ export class AiFormatter {
   }
 
   static hasOwnKey() {
-    return !!localStorage.getItem('cc_ai_api_key');
+    try { return !!localStorage.getItem('cc_ai_api_key'); }
+    catch { return false; }
+  }
+
+  // True when any on-device option is switched on (Settings > AI).
+  static hasLocalOption() {
+    try {
+      return localStorage.getItem('cc_local_ai_enabled') === 'true' ||
+        localStorage.getItem('cc_advanced_ai_enabled') === 'true';
+    } catch { return false; }
   }
 
   static getApiKey() {
@@ -259,6 +268,25 @@ export class AiFormatter {
       }
     }
     try {
+      // 1) On-device LLM (WebGPU) handles every mode when enabled.
+      try {
+        const { AdvancedLocalAI } = await import('./advanced-local-ai.js');
+        if (AdvancedLocalAI.isEnabled()) return await AdvancedLocalAI.process(resumeText, mode, context);
+      } catch (e) {
+        if (e && /disabled|WebGPU not supported/.test(e.message || '')) { /* fall through */ }
+        else throw e;
+      }
+      // 2) Lightweight on-device models for supported modes.
+      try {
+        const { LocalAI } = await import('./local-ai.js');
+        if (LocalAI.isEnabled() && LocalAI.isSupportedMode(mode)) {
+          return await LocalAI.process(resumeText, mode, context);
+        }
+      } catch (e) {
+        if (e && /not enabled|not supported/.test(e.message || '')) { /* fall through */ }
+        else throw e;
+      }
+      // 3) Server proxy (Vercel) — no user key needed when deployed.
       return await this._callServer(resumeText, mode, context);
     } catch (serverErr) {
       throw new Error('AI features require a free API key. Get one from: Gemini (https://aistudio.google.com/apikey) or Groq (https://console.groq.com). Paste it in Smart Format or the AI Format dialog.');

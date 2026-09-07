@@ -126,7 +126,7 @@ const professionalSlate = {
     if (skillsSection) {
       html += `<div class="resume-sidebar-section" style="margin-top: 24px;">`;
       html += `<h3 style="font-size: 14px; font-weight: 700; margin-bottom: 12px; color: var(--accent-color, #64748b);">SKILLS</h3>`;
-      skillsSection.items.filter(shouldRenderItem).forEach(item => {
+      (skillsSection.items || []).filter(shouldRenderItem).forEach(item => {
         if (item.category) {
           html += `<div style="margin-bottom: 12px;">`;
           html += `<div style="font-weight: 600; font-size: 12px; margin-bottom: 4px;">${e(item.category)}</div>`;
@@ -162,7 +162,7 @@ const professionalSlate = {
       html += `<div class="resume-section" style="margin-bottom: 24px;">`;
       html += `<h2 class="resume-section-title" style="font-size: 18px; font-weight: 700; color: var(--accent-color, #64748b); border-bottom: 2px solid var(--accent-color, #64748b); padding-bottom: 6px; margin-bottom: 16px;">${e(section.title || section.type).toUpperCase()}</h2>`;
 
-      const items = section.items.filter(shouldRenderItem);
+      const items = (section.items || []).filter(shouldRenderItem);
 
       if (getSectionType(section) === 'summary') {
         items.forEach(item => {
@@ -292,7 +292,7 @@ const corporateBlue = {
       html += `<div class="resume-section" style="margin-bottom: 28px;">`;
       html += `<h2 class="resume-section-title" style="font-size: 20px; font-weight: 700; color: var(--accent-color, #1e3a8a); margin-bottom: 16px; text-transform: uppercase;">${e(section.title || section.type)}</h2>`;
 
-      const items = section.items.filter(shouldRenderItem);
+      const items = (section.items || []).filter(shouldRenderItem);
 
       if (getSectionType(section) === 'summary') {
         items.forEach(item => {
@@ -419,7 +419,7 @@ const modernNavy = {
     if (skillsSection) {
       html += `<div class="resume-sidebar-section" style="margin-top: 24px;">`;
       html += `<h3 style="font-size: 14px; font-weight: 700; margin-bottom: 12px; color: white; border-bottom: 2px solid rgba(255,255,255,0.3); padding-bottom: 6px;">SKILLS</h3>`;
-      skillsSection.items.filter(shouldRenderItem).forEach(item => {
+      (skillsSection.items || []).filter(shouldRenderItem).forEach(item => {
         if (item.category) {
           html += `<div style="margin-bottom: 14px;">`;
           html += `<div style="font-weight: 600; font-size: 12px; margin-bottom: 6px;">${e(item.category)}</div>`;
@@ -454,7 +454,7 @@ const modernNavy = {
       html += `<div class="resume-section" style="margin-bottom: 24px;">`;
       html += `<h2 class="resume-section-title" style="font-size: 18px; font-weight: 700; color: var(--accent-color, #1e40af); margin-bottom: 14px;">${e(section.title || section.type).toUpperCase()}</h2>`;
 
-      const items = section.items.filter(shouldRenderItem);
+      const items = (section.items || []).filter(shouldRenderItem);
 
       if (getSectionType(section) === 'summary') {
         items.forEach(item => {
@@ -565,7 +565,7 @@ const elegantSerif = {
       html += `<div class="resume-section" style="margin-bottom: 28px;">`;
       html += `<h2 style="font-size: 20px; font-weight: 600; border-bottom: 1px solid #2c2c2c; padding-bottom: 6px; margin-bottom: 16px;">${e(section.title || section.type)}</h2>`;
 
-      const items = section.items.filter(shouldRenderItem);
+      const items = (section.items || []).filter(shouldRenderItem);
 
       if (getSectionType(section) === 'experience') {
         items.forEach(item => {
@@ -664,7 +664,7 @@ const cleanEmerald = {
       html += `<div style="margin-bottom: 24px;">`;
       html += `<h2 style="font-size: 18px; font-weight: 700; color: var(--accent-color, #059669); border-left: 4px solid var(--accent-color, #059669); padding-left: 12px; margin-bottom: 14px;">${e(section.title || section.type).toUpperCase()}</h2>`;
 
-      const items = section.items.filter(shouldRenderItem);
+      const items = (section.items || []).filter(shouldRenderItem);
 
       if (getSectionType(section) === 'experience') {
         items.forEach(item => {
@@ -753,7 +753,7 @@ const executiveCharcoal = {
       html += `<div style="margin-bottom: 32px;">`;
       html += `<h2 style="font-size: 20px; font-weight: 700; color: var(--accent-color, #374151); border-bottom: 2px solid var(--secondary-color, #d97706); padding-bottom: 8px; margin-bottom: 20px;">${e(section.title || section.type).toUpperCase()}</h2>`;
 
-      const items = section.items.filter(shouldRenderItem);
+      const items = (section.items || []).filter(shouldRenderItem);
 
       if (getSectionType(section) === 'experience') {
         items.forEach(item => {
@@ -814,7 +814,7 @@ const minimalSand = {
     html += `</div>`;
     sections.filter(shouldRender).forEach(section => {
       html += `<div style="margin-bottom: 24px;"><h2 style="font-size: 16px; color: var(--accent-color, #92400e);">${e(section.title || section.type)}</h2>`;
-      section.items.filter(shouldRenderItem).forEach(item => {
+      (section.items || []).filter(shouldRenderItem).forEach(item => {
         html += `<div style="margin-bottom: 12px;">`;
         if (item.jobTitle || item.degree) html += `<strong>${e(item.jobTitle || item.degree)}</strong>`;
         html += `</div>`;
@@ -854,7 +854,7 @@ const precisionGray = {
     }
     sections.filter(shouldRender).forEach(section => {
       html += `<div style="margin-top: 20px;"><h2 style="font-size: 16px; color: var(--accent-color, #4b5563); border-bottom: 1px solid #d1d5db;">${e(section.title || section.type)}</h2>`;
-      section.items.filter(shouldRenderItem).forEach(item => {
+      (section.items || []).filter(shouldRenderItem).forEach(item => {
         html += `<div style="margin: 10px 0;">`;
         if (item.jobTitle || item.degree) html += `<strong>${e(item.jobTitle || item.degree)}</strong>`;
         html += `</div>`;
@@ -896,7 +896,7 @@ const leadershipBurgundy = {
       html += `<div style="margin-top: 24px;"><h2 style="font-size: 18px; color: var(--accent-color, #991b1b); border-bottom: 2px solid var(--accent-color, #991b1b); padding-bottom: 4px; margin-bottom: 12px;">${e(section.title || section.type)}</h2>`;
       const st = getSectionType(section);
       if (section.content) html += `<p style="margin-bottom: 12px; color: #333;">${e(section.content)}</p>`;
-      section.items.filter(shouldRenderItem).forEach(item => {
+      (section.items || []).filter(shouldRenderItem).forEach(item => {
         html += `<div style="margin-bottom: 14px;">`;
         if (st === 'experience') {
           if (item.jobTitle) html += `<div style="font-weight: 700; font-size: 13px; color: #1f2937;">${e(item.jobTitle)}</div>`;
@@ -962,7 +962,7 @@ const consultantClassic = {
       html += `<div style="margin-top: 22px;"><h2 style="font-size: 17px; color: var(--accent-color, #374151); border-bottom: 2px solid var(--accent-color, #374151); padding-bottom: 4px; margin-bottom: 12px;">${e(section.title || section.type)}</h2>`;
       const st = getSectionType(section);
       if (section.content) html += `<p style="margin-bottom: 12px; color: #333;">${e(section.content)}</p>`;
-      section.items.filter(shouldRenderItem).forEach(item => {
+      (section.items || []).filter(shouldRenderItem).forEach(item => {
         html += `<div style="margin-bottom: 14px;">`;
         if (st === 'experience') {
           if (item.jobTitle) html += `<div style="font-weight: 700; font-size: 13px; color: #111827;">${e(item.jobTitle)}</div>`;

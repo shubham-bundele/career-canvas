@@ -555,9 +555,13 @@ export class ImportManager {
       const contactPanel = createElement('div', '', { class: 'import-review-tabpanel', 'data-tabpanel': 'contact' });
       const fields = [
         { key: 'name', label: 'Full Name', value: parsedData.name },
+        { key: 'title', label: 'Professional Title', value: parsedData.title || parsedData.professionalTitle || '' },
         { key: 'email', label: 'Email', value: parsedData.email },
         { key: 'phone', label: 'Phone', value: parsedData.phone },
-        { key: 'location', label: 'Location', value: parsedData.location || '' }
+        { key: 'location', label: 'Location', value: parsedData.location || '' },
+        { key: 'linkedin', label: 'LinkedIn', value: parsedData.linkedin || '' },
+        { key: 'github', label: 'GitHub', value: parsedData.github || '' },
+        { key: 'website', label: 'Website', value: parsedData.website || '' }
       ];
       this._reviewInputs = {};
       fields.forEach(f => {
@@ -1055,9 +1059,16 @@ export class ImportManager {
   _syncParsedFromInputs() {
     if (!this.parsedData || !this._reviewInputs) return;
     if (this._reviewInputs.name) this.parsedData.name = this._reviewInputs.name.value;
+    if (this._reviewInputs.title) {
+      this.parsedData.title = this._reviewInputs.title.value;
+      this.parsedData.professionalTitle = this._reviewInputs.title.value;
+    }
     if (this._reviewInputs.email) this.parsedData.email = this._reviewInputs.email.value;
     if (this._reviewInputs.phone) this.parsedData.phone = this._reviewInputs.phone.value;
     if (this._reviewInputs.location) this.parsedData.location = this._reviewInputs.location.value;
+    if (this._reviewInputs.linkedin) this.parsedData.linkedin = this._reviewInputs.linkedin.value;
+    if (this._reviewInputs.github) this.parsedData.github = this._reviewInputs.github.value;
+    if (this._reviewInputs.website) this.parsedData.website = this._reviewInputs.website.value;
     if (this._reviewInputs.docName) this.parsedData._docName = this._reviewInputs.docName.value;
     if (this._reviewInputs.docType) this.parsedData._docType = this._reviewInputs.docType.value;
   }
@@ -1426,6 +1437,22 @@ export class ImportManager {
         return v.length >= 2
           ? { level: 'high', color: '#22c55e', label: 'Location provided' }
           : { level: 'medium', color: '#eab308', label: 'Location unclear' };
+      case 'title':
+        return v.length >= 2
+          ? { level: 'high', color: '#22c55e', label: 'Title detected' }
+          : { level: 'medium', color: '#eab308', label: 'Title unclear' };
+      case 'linkedin':
+        return /linkedin\.com/i.test(v)
+          ? { level: 'high', color: '#22c55e', label: 'Valid LinkedIn URL' }
+          : { level: 'medium', color: '#eab308', label: 'Uncertain LinkedIn URL' };
+      case 'github':
+        return /github\.com/i.test(v)
+          ? { level: 'high', color: '#22c55e', label: 'Valid GitHub URL' }
+          : { level: 'medium', color: '#eab308', label: 'Uncertain GitHub URL' };
+      case 'website':
+        return /^https?:\/\//i.test(v) || /^[\w-]+\.[a-z]{2,}/i.test(v)
+          ? { level: 'high', color: '#22c55e', label: 'Website provided' }
+          : { level: 'medium', color: '#eab308', label: 'Uncertain URL' };
       default:
         return null;
     }
@@ -1443,6 +1470,11 @@ export class ImportManager {
     }
     if (section._matchSource === 'typeMap') {
       return { level: 'high', color: '#22c55e', label: 'Matched by header text' };
+    }
+    if (section._matchSource === 'fuzzy') {
+      return section._correctedFrom
+        ? { level: 'high', color: '#22c55e', label: `Header typo fixed: "${section._correctedFrom}"` }
+        : { level: 'high', color: '#22c55e', label: 'Matched by header (typo-tolerant)' };
     }
     // Type is a known standard type but was assigned by AI or partial match
     return { level: 'medium', color: '#eab308', label: 'Type inferred' };
@@ -2400,19 +2432,34 @@ export class ImportManager {
   }
 
   async _parseTextWithFallback(text) {
+    // 1) AI first: on-device (LocalAI/AdvancedLocalAI) when enabled,
+    //    otherwise the server proxy, otherwise the user's own Gemini key.
     try {
       const { AiFormatter } = await import('./ai-formatter.js');
       const ai = new AiFormatter();
-      if (window.CC?.toast) window.CC.toast.show('Parsing document with AI...', 'info');
+      if (window.CC?.toast) window.CC.toast.show('Analyzing document with AI...', 'info');
       const parsed = await ai.parseResume(text);
       if (parsed && typeof parsed === 'object') {
         // Ensure sections exist
         if (!parsed.sections) parsed.sections = [];
+        parsed._parser = parsed._parser || 'ai';
         return parsed;
       }
     } catch (err) {
-      console.warn('AI parsing failed, falling back to local rule-based parsing:', err);
+      console.warn('AI parsing failed, falling back to local smart parsing:', err);
     }
+    // 2) Offline smart parser: fuzzy headers + spell correction + contacts.
+    try {
+      const { parseResumeLocal } = await import('./local-resume-parser.js');
+      const parsed = parseResumeLocal(text);
+      if (parsed && (parsed.sections?.length || parsed.name || parsed.email)) {
+        if (window.CC?.toast) window.CC.toast.show('AI unavailable — parsed locally on your device.', 'info');
+        return parsed;
+      }
+    } catch (err) {
+      console.warn('Local smart parsing failed, falling back to legacy parsing:', err);
+    }
+    // 3) Legacy exact-match parser (last resort).
     return this.parsePlainText(text);
   }
 
@@ -2749,8 +2796,20 @@ export class ImportManager {
           throw new Error('Invalid AI parse result');
         }
       } catch (err) {
-        console.warn('AI parsing failed, falling back to local rule-based HTML parsing:', err);
-        parsed = this.parseHTMLContent(div);
+        console.warn('AI parsing failed, trying local smart parsing:', err);
+        try {
+          const { parseResumeLocal } = await import('./local-resume-parser.js');
+          const smart = parseResumeLocal(cleanText);
+          if (smart && (smart.sections?.length || smart.name || smart.email)) {
+            parsed = smart;
+            if (window.CC?.toast) window.CC.toast.show('AI unavailable — parsed locally on your device.', 'info');
+          } else {
+            throw new Error('Local smart parse returned nothing usable');
+          }
+        } catch (err2) {
+          console.warn('Local smart parsing failed, falling back to rule-based HTML parsing:', err2);
+          parsed = this.parseHTMLContent(div);
+        }
       }
       parsed.sourceFile = file.name;
       parsed.sourceType = 'docx';
@@ -2983,9 +3042,46 @@ export class ImportManager {
         throw new Error('Invalid AI parse result');
       }
     } catch (err) {
-      console.error('Image import failed:', err);
-      if (window.CC?.toast) window.CC.toast.show('Failed to parse image. Ensure API key is configured.', 'error');
-      throw err;
+      console.warn('AI image parse failed, trying on-device OCR...', err);
+      try {
+        if (window.CC?.toast) window.CC.toast.show('AI unavailable — reading image with on-device OCR...', 'info');
+        const ocrText = await this.runImageOCR(file);
+        if (!ocrText || ocrText.trim().length < 10) throw new Error('OCR found no readable text');
+        const parsed = await this._parseTextWithFallback(ocrText);
+        parsed.sourceFile = file.name;
+        parsed.sourceType = 'image';
+        parsed._rawText = ocrText;
+        parsed.ocrUsed = true;
+        const confirmed = await this.showFieldMapping(parsed);
+        if (!confirmed) return null;
+        const result = await this.finalizeImportedDocument(this.parsedData, { sourceType: 'image' });
+        if (result.verified && window.CC?.router) window.CC.router.navigate(result.route);
+        return result.document;
+      } catch (err2) {
+        console.error('Image import failed:', err2);
+        if (window.CC?.toast) window.CC.toast.show('Could not read this image. Try a PDF or text version.', 'error');
+        throw err2;
+      }
+    }
+  }
+
+  /**
+   * OCR for image files (on-device via Tesseract.js CDN).
+   * Used as the fallback when AI image parsing is unavailable.
+   */
+  async runImageOCR(file, language = 'eng') {
+    const Tesseract = await import('https://cdn.jsdelivr.net/npm/tesseract.js@5/+esm');
+    const worker = await Tesseract.createWorker(language, 1);
+    try {
+      const url = URL.createObjectURL(file);
+      try {
+        const { data: { text } } = await worker.recognize(url);
+        return text || '';
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    } finally {
+      await worker.terminate();
     }
   }
 

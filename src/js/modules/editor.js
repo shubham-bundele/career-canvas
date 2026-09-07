@@ -4514,7 +4514,7 @@ export class ResumeEditor {
       analyzeBtn.className = 'btn btn-sm btn-primary';
       analyzeBtn.textContent = '🔍 AI Analyze';
       analyzeBtn.addEventListener('click', async () => {
-        if (!ai.apiKey) { showKeySetup(); return; }
+        if (!ai.apiKey && !AiFormatter.hasLocalOption()) { showKeySetup(); return; }
         analyzeBtn.disabled = true;
         analyzeBtn.textContent = '⏳ Analyzing...';
         aiResultsArea.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;gap:var(--space-3);padding:var(--space-6);"><div class="cc-spinner"></div><p style="color:var(--text-muted);font-size:var(--font-size-sm);">AI is analyzing your resume...</p></div>';
@@ -4645,7 +4645,7 @@ export class ResumeEditor {
       summaryBtn.className = 'btn btn-sm btn-outline';
       summaryBtn.textContent = '📝 AI Summary';
       summaryBtn.addEventListener('click', async () => {
-        if (!ai.apiKey) { showKeySetup(); return; }
+        if (!ai.apiKey && !AiFormatter.hasLocalOption()) { showKeySetup(); return; }
         summaryBtn.disabled = true;
         summaryBtn.textContent = '⏳ Generating...';
         aiResultsArea.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;gap:var(--space-3);padding:var(--space-6);"><div class="cc-spinner"></div><p style="color:var(--text-muted);font-size:var(--font-size-sm);">Generating AI summary...</p></div>';
