@@ -90,7 +90,7 @@ const CORE = [
   ['src/js/modules/toast.js', ['Toast']],
   ['src/js/modules/modal.js', ['Modal']],
   ['src/js/modules/export-manager.js', ['ExportManager']],
-  ['src/js/modules/import-manager.js', ['ImportManager', 'parsePlainText', 'renderImportView', 'importFile', 'importFileBatch', 'importLinkedInFlow', 'adaptLinkedInProfile', 'getImportHistory']],
+  ['src/js/modules/import-manager.js', ['ImportManager', 'parsePlainText', 'renderImportView', 'importFile', 'importFileBatch', 'importLinkedInFlow', 'adaptLinkedInProfile', 'getImportHistory', 'importHTML', 'importFromURL']],
   ['src/js/modules/ats-checker.js', ['ATSChecker']],
   ['src/js/modules/ai-formatter.js', ['AiFormatter', 'getSystemPrompts', 'hasLocalOption', 'validateKey']],
   ['src/js/modules/local-ai.js', ['LocalAI', 'process', 'getEmbeddings', 'cosineSimilarity']],

@@ -2781,6 +2781,18 @@ kbd {
   line-height: 1;
 }
 
+/* Parser badge in the review header */
+.import-parser-badge {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-6);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-primary);
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+
 /* Tabs */
 .import-review-tabs {
   display: flex; gap: var(--space-1);

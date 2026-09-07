@@ -6,6 +6,7 @@
 import { validateDocument, migrateDocument, SCHEMA_VERSION, createEmptyDocument } from '../core/schema.js';
 import { generateUUID } from '../utils/id.js';
 import { createElement } from '../utils/sanitize.js';
+import { extractContact } from '../utils/text-parse.js';
 import eventBus, { EVENTS } from '../core/events.js';
 import toast from './toast.js';
 import modal from './modal.js';
@@ -43,6 +44,13 @@ export class ImportManager {
 
       // Migrate if necessary
       const migrated = migrateDocument(data);
+
+      // Duplicate check before asking to import
+      {
+        const gate = await this._duplicateGate(this.computeFileFingerprint(content), file.name);
+        if (!gate) return null;
+        if (gate.openDoc) { this._go(`/editor/${gate.openDoc.id}`); return gate.openDoc; }
+      }
 
       // Generate new ID and timestamps
       migrated.id = generateUUID();
@@ -98,6 +106,13 @@ export class ImportManager {
       // Parse text
       const parsed = await this._parseTextWithFallback(text);
       parsed._rawText = text;
+      parsed.fingerprint = this.computeFileFingerprint(text);
+      if (input instanceof File && input.name) parsed.sourceFile = input.name;
+
+      // Duplicate check before review
+      const gate = await this._duplicateGate(parsed.fingerprint, parsed.sourceFile || 'pasted text');
+      if (!gate) return null;
+      if (gate.openDoc) { this._go(`/editor/${gate.openDoc.id}`); return gate.openDoc; }
 
       // Show field mapping UI
       const confirmed = await this.showFieldMapping(parsed);
@@ -249,6 +264,9 @@ export class ImportManager {
       email: '',
       phone: '',
       location: '',
+      linkedin: '',
+      github: '',
+      website: '',
       sections: []
     };
 
@@ -262,13 +280,20 @@ export class ImportManager {
       }
     }
 
-    // Extract email
-    const emailMatch = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-    if (emailMatch) parsed.email = emailMatch[0];
-
-    // Extract phone
-    const phoneMatch = text.match(/[\+]?[(]?[0-9]{1,4}[)]?[-\s.]?[(]?[0-9]{1,4}[)]?[-\s.]?[0-9]{1,9}/);
-    if (phoneMatch) parsed.phone = phoneMatch[0];
+    // Shared contact extraction (email, phone, LinkedIn, GitHub, website, location)
+    try {
+      const contact = extractContact(text);
+      if (contact.email) parsed.email = contact.email;
+      if (contact.phone) parsed.phone = contact.phone;
+      if (contact.location) parsed.location = contact.location;
+      if (contact.linkedin) parsed.linkedin = contact.linkedin;
+      if (contact.github) parsed.github = contact.github;
+      if (contact.website) parsed.website = contact.website;
+    } catch {
+      // Fallback to inline regexes if shared extraction fails
+      const emailMatch = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+      if (emailMatch) parsed.email = emailMatch[0];
+    }
 
     const typeMap = {
       // Experience
@@ -479,6 +504,38 @@ export class ImportManager {
       closeBtn.addEventListener('click', () => { overlay.remove(); cleanupAndResolve(false); });
       header.appendChild(closeBtn);
       panel.appendChild(header);
+
+      // --- Parser badge + AI upgrade ---
+      {
+        const badge = createElement('div', '', { class: 'import-parser-badge' });
+        const isAI = parsedData._parser === 'ai' || parsedData._parser === 'ai-linkedin';
+        const label = createElement('span', isAI ? '🤖 Parsed with AI' : '📴 Parsed offline on your device', { class: 'import-parser-label' });
+        badge.appendChild(label);
+        if (!isAI && parsedData._rawText && parsedData._rawText.length > 20) {
+          const upBtn = createElement('button', 'Re-parse with AI', { class: 'btn btn-sm btn-outline', type: 'button' });
+          upBtn.addEventListener('click', async () => {
+            upBtn.disabled = true;
+            upBtn.textContent = 'Parsing…';
+            try {
+              const { AiFormatter } = await import('./ai-formatter.js');
+              const fresh = await new AiFormatter().parseResume(parsedData._rawText);
+              if (!fresh || typeof fresh !== 'object') throw new Error('AI returned nothing usable');
+              fresh._parser = 'ai';
+              for (const k of ['sourceFile', 'sourceType', '_rawText', 'images', 'fingerprint', '_docName', '_docType', '_templateId', '_mergeMode', '_mergeTargetId']) {
+                if (parsedData[k] !== undefined && fresh[k] === undefined) fresh[k] = parsedData[k];
+              }
+              this._applyReparsedData(fresh, body, tabs, badge);
+              if (window.CC?.toast) window.CC.toast.show('Review refreshed with the AI parse', 'success');
+            } catch (err) {
+              upBtn.disabled = false;
+              upBtn.textContent = 'Re-parse with AI';
+              if (window.CC?.toast) window.CC.toast.show('AI re-parse failed: ' + (err.message || err), 'error');
+            }
+          });
+          badge.appendChild(upBtn);
+        }
+        panel.appendChild(badge);
+      }
 
       // --- Duplicate Detection Banner (Feature 1) ---
       if (duplicateMatch) {
@@ -1054,6 +1111,39 @@ export class ImportManager {
       const escHandler = (e) => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', escHandler); cleanupAndResolve(false); } };
       document.addEventListener('keydown', escHandler);
     });
+  }
+
+  /**
+   * Refresh an open review UI with re-parsed data (AI upgrade path).
+   * Updates contact inputs, rebuilds the sections tab, and flips the badge.
+   */
+  _applyReparsedData(fresh, body, tabs, badge) {
+    this.parsedData = fresh;
+    if (this._reviewInputs) {
+      for (const key of ['name', 'title', 'email', 'phone', 'location', 'linkedin', 'github', 'website']) {
+        const input = this._reviewInputs[key];
+        if (!input) continue;
+        let v = fresh[key];
+        if (key === 'title') v = fresh.title || fresh.professionalTitle || '';
+        if (v !== undefined && v !== null) {
+          input.value = v;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      }
+    }
+    if (body) {
+      const secPanel = body.querySelector('[data-tabpanel="sections"]');
+      if (secPanel) this._rebuildSectionsTab(secPanel, fresh);
+    }
+    if (tabs) {
+      const secTab = tabs.querySelector('[data-tab="sections"]');
+      if (secTab) secTab.textContent = `Sections (${fresh.sections?.length || 0})`;
+    }
+    if (badge) {
+      badge.innerHTML = '';
+      badge.appendChild(createElement('span', '🤖 Parsed with AI', { class: 'import-parser-label' }));
+    }
+    this.saveImportDraft(fresh);
   }
 
   _syncParsedFromInputs() {
@@ -1727,13 +1817,54 @@ export class ImportManager {
    * @returns {string} Hash fingerprint as a string
    */
   computeFileFingerprint(content) {
-    let hash = 0;
-    const str = typeof content === 'string' ? content : new TextDecoder().decode(content.slice(0, 10000));
-    for (let i = 0; i < Math.min(str.length, 5000); i++) {
-      hash = ((hash << 5) - hash) + str.charCodeAt(i);
-      hash |= 0;
+    // cyrb53 over the FULL content + length suffix. Byte-wise for binary
+    // (sampling very large files), char-wise for text. Much stronger than
+    // the old 32-bit hash of the first 5000 chars.
+    let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+    const mix = (code) => {
+      h1 = Math.imul(h1 ^ code, 2654435761);
+      h2 = Math.imul(h2 ^ code, 1597334677);
+    };
+    let len = 0;
+    if (typeof content === 'string') {
+      len = content.length;
+      for (let i = 0; i < content.length; i++) mix(content.charCodeAt(i));
+    } else if (content) {
+      const bytes = content instanceof Uint8Array ? content : new Uint8Array(content);
+      len = bytes.length;
+      const step = bytes.length > 200000 ? Math.max(1, Math.floor(bytes.length / 200000)) : 1;
+      for (let i = 0; i < bytes.length; i += step) mix(bytes[i]);
     }
-    return String(Math.abs(hash));
+    mix(len);
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    return `${(4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36)}:${len.toString(36)}`;
+  }
+
+  /**
+   * Duplicate gate: fingerprint/name check before review.
+   * In batch mode the dialog is skipped (batch pre-check covers it).
+   * @returns {Promise<{proceed:true}|{openDoc:Object}|null>} null = user cancelled
+   */
+  async _duplicateGate(fingerprint, fileName) {
+    if (this._batchMode) return { proceed: true };
+    let dup = { isDuplicate: false };
+    try {
+      dup = await this.checkForDuplicate(fingerprint, fileName);
+    } catch { return { proceed: true }; }
+    if (!dup.isDuplicate) return { proceed: true };
+    const action = await this.showDuplicateDialog(dup.existingDoc, fileName);
+    if (action === 'open') return { openDoc: dup.existingDoc };
+    if (action === 'replace') {
+      this._updateExistingDocId = dup.existingDoc.id;
+      this._updateExistingDoc = dup.existingDoc;
+      return { proceed: true };
+    }
+    if (action === 'new') return { proceed: true };
+    // Cancelled (null) — reset any replace staging and abort
+    this._updateExistingDocId = null;
+    this._updateExistingDoc = null;
+    return null;
   }
 
   /**
@@ -2461,6 +2592,7 @@ export class ImportManager {
     if (name.endsWith('.docx')) return await this.importDOCX(file);
     if (name.endsWith('.pdf')) return await this.importPDF(file);
     if (name.endsWith('.txt') || name.endsWith('.md')) return await this.importPlainText(file);
+    if (name.endsWith('.html') || name.endsWith('.htm')) return await this.importHTML(file);
     if (/\.(png|jpe?g|webp|gif|bmp)$/.test(name)) return await this.importImage(file);
     if (name.endsWith('.doc')) {
       if (window.CC?.toast) window.CC.toast.show('Legacy .doc files are not supported. Save as .docx first.', 'warning');
@@ -2484,8 +2616,26 @@ export class ImportManager {
     this._batchMode = true;
     const results = { imported: 0, failed: 0, total: files.length, docs: [] };
     try {
-      let i = 0;
+      // Pre-check: collapse exact duplicates inside the batch itself so the
+      // same file dropped twice is reviewed only once.
+      const unique = [];
+      const seenFp = new Set();
+      let skippedDup = 0;
       for (const file of files) {
+        let fp = null;
+        try {
+          fp = this.computeFileFingerprint(new Uint8Array(await file.arrayBuffer()));
+        } catch { /* fall through as unique */ }
+        if (fp && seenFp.has(fp)) { skippedDup++; continue; }
+        if (fp) seenFp.add(fp);
+        unique.push(file);
+      }
+      if (skippedDup > 0 && window.CC?.toast) {
+        window.CC.toast.show(`Skipped ${skippedDup} duplicate file${skippedDup === 1 ? '' : 's'} in this batch`, 'info');
+      }
+      results.total = unique.length;
+      let i = 0;
+      for (const file of unique) {
         i++;
         if (window.CC?.toast) window.CC.toast.show(`Importing ${i} of ${files.length}: ${file.name}`, 'info');
         try {
@@ -2514,12 +2664,50 @@ export class ImportManager {
     return results;
   }
 
+  /** Import a resume file from a URL (same-origin or CORS-enabled). */
+  async importFromURL(url) {
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new Error('That does not look like a valid link.');
+    }
+    if (!/^https?:$/.test(parsed.protocol)) throw new Error('Only http(s) links are supported.');
+    if (window.CC?.toast) window.CC.toast.show('Fetching file…', 'info');
+    let res;
+    try {
+      res = await fetch(url);
+    } catch {
+      throw new Error('Could not reach that link (network error or blocked by CORS).');
+    }
+    if (!res.ok) throw new Error(`Server returned ${res.status}.`);
+    const blob = await res.blob();
+    const pathName = parsed.pathname.split('/').pop() || 'download';
+    const ct = (res.headers.get('content-type') || '').toLowerCase();
+    let fileName = decodeURIComponent(pathName);
+    if (!/\.[a-z0-9]+$/i.test(fileName)) {
+      if (ct.includes('pdf')) fileName += '.pdf';
+      else if (ct.includes('word') || ct.includes('officedocument')) fileName += '.docx';
+      else if (ct.includes('json')) fileName += '.json';
+      else if (ct.includes('html')) fileName += '.html';
+      else if (ct.includes('image')) fileName += '.png';
+      else fileName += '.txt';
+    }
+    const file = new File([blob], fileName, { type: blob.type || ct.split(';')[0] });
+    // Plain-text responses parse directly without a File round-trip
+    if (/\.(txt|md)$/i.test(fileName) || (ct.includes('text/plain') && !/\./.test(pathName))) {
+      return await this.importPlainText(await blob.text());
+    }
+    return await this.importFile(file);
+  }
+
   _formatIdFor(fileName) {
     const n = String(fileName || '').toLowerCase();
     if (n.endsWith('.json')) return 'json';
     if (n.endsWith('.docx')) return 'docx';
     if (n.endsWith('.pdf')) return 'pdf';
     if (/\.(png|jpe?g|webp|gif|bmp)$/.test(n)) return 'image';
+    if (n.endsWith('.html') || n.endsWith('.htm')) return 'html';
     return 'txt';
   }
 
@@ -2788,6 +2976,7 @@ export class ImportManager {
       { id: 'pdf', icon: '📄', title: 'PDF Document', ext: '.pdf', desc: 'Extract resume or CV text from a PDF file.', accept: '.pdf', note: 'Scanned PDFs require OCR' },
       { id: 'txt', icon: '📃', title: 'Plain Text', ext: '.txt', desc: 'Paste or upload resume text for structured import.', accept: '.txt,.md' },
       { id: 'image', icon: '🖼️', title: 'Resume Image', ext: '.png/.jpg', desc: 'AI vision first, on-device OCR fallback. No key needed for OCR.', accept: '.png,.jpg,.jpeg,.webp,.gif,.bmp' },
+      { id: 'html', icon: '🌐', title: 'Saved Webpage', ext: '.html', desc: 'Import a resume saved as a webpage (structure-aware).', accept: '.html,.htm' },
       { id: 'linkedin', icon: '💼', title: 'LinkedIn Profile', ext: 'paste', desc: 'Paste profile text — AI parses it, offline parser fills in on failure.', accept: '' },
     ];
 
@@ -2880,6 +3069,32 @@ export class ImportManager {
     textSection.appendChild(textBtnRow);
     container.appendChild(textSection);
 
+    // URL import row
+    const urlSection = createElement('div', '', { class: 'import-text-section' });
+    urlSection.appendChild(createElement('p', 'Or import from a link (the server must allow it — CORS):', { class: 'import-or-text' }));
+    const urlRow = createElement('div', '', { class: 'import-url-row' });
+    urlRow.style.cssText = 'display:flex;gap:var(--space-2);';
+    const urlInput = createElement('input', '', { class: 'form-input import-url-input', type: 'url', placeholder: 'https://example.com/resume.pdf' });
+    urlInput.style.flex = '1';
+    urlInput.setAttribute('aria-label', 'Resume file URL');
+    urlRow.appendChild(urlInput);
+    const urlBtn = createElement('button', 'Fetch & Import', { class: 'btn btn-outline', type: 'button' });
+    urlBtn.addEventListener('click', async () => {
+      const url = urlInput.value.trim();
+      if (!url) { if (window.CC?.toast) window.CC.toast.show('Paste a link first', 'warning'); return; }
+      urlBtn.disabled = true;
+      try {
+        await this.importFromURL(url);
+      } catch (e) {
+        if (window.CC?.toast) window.CC.toast.show('URL import failed: ' + e.message, 'error');
+      } finally {
+        urlBtn.disabled = false;
+      }
+    });
+    urlRow.appendChild(urlBtn);
+    urlSection.appendChild(urlRow);
+    container.appendChild(urlSection);
+
     // Back button
     const backRow = createElement('div', '', { class: 'import-back-row' });
     const backBtn = createElement('button', '← Back to Dashboard', { class: 'btn btn-ghost' });
@@ -2958,6 +3173,12 @@ export class ImportManager {
             else this._go('/dashboard');
             break;
           }
+          case 'html': {
+            const doc = await this.importHTML(file);
+            if (doc) this._go(`/editor/${doc.id}`);
+            else this._go('/dashboard');
+            break;
+          }
         }
       } catch (err) {
         if (window.CC?.toast) window.CC.toast.show('Import failed: ' + err.message, 'error');
@@ -2987,8 +3208,66 @@ export class ImportManager {
     if (formatId === 'image' && !/\.(png|jpe?g|webp|gif|bmp)$/.test(name)) {
       return { valid: false, error: 'Please select an image file (PNG, JPG, WebP, GIF, BMP)' };
     }
+    if (formatId === 'html' && !/\.(html?)$/.test(name)) {
+      return { valid: false, error: 'Please select an .html file' };
+    }
 
     return { valid: true };
+  }
+
+  // ==================== HTML IMPORT ====================
+
+  /** Import a saved-webpage/HTML resume (DOM structure aware, no new deps). */
+  async importHTML(file) {
+    if (window.CC?.toast) window.CC.toast.show('Reading HTML document...', 'info');
+    try {
+      const raw = await this.readFileAsText(file);
+      if (!raw || !raw.trim()) throw new Error('HTML file is empty');
+      const doc = new DOMParser().parseFromString(raw, 'text/html');
+      doc.querySelectorAll('script,style,iframe,object,embed,form,input,button').forEach((el) => el.remove());
+      doc.querySelectorAll('[onclick],[onerror],[onload]').forEach((el) => {
+        Array.from(el.attributes).filter((a) => a.name.startsWith('on')).forEach((a) => el.removeAttribute(a.name));
+      });
+      const body = doc.body || doc;
+      const cleanText = (body.textContent || '').trim();
+      if (!cleanText) throw new Error('No readable text in HTML file');
+
+      let parsed;
+      try {
+        const { AiFormatter } = await import('./ai-formatter.js');
+        if (window.CC?.toast) window.CC.toast.show('Parsing HTML with AI...', 'info');
+        const aiParsed = await new AiFormatter().parseResume(cleanText);
+        if (aiParsed && typeof aiParsed === 'object') {
+          if (!aiParsed.sections) aiParsed.sections = [];
+          parsed = aiParsed;
+        } else {
+          throw new Error('Invalid AI parse result');
+        }
+      } catch (err) {
+        console.warn('AI parsing failed, using structure-aware HTML parsing:', err);
+        parsed = this.parseHTMLContent(body);
+      }
+      parsed.sourceFile = file.name;
+      parsed.sourceType = 'html';
+      parsed._rawText = cleanText;
+      parsed.fingerprint = this.computeFileFingerprint(cleanText);
+
+      // Duplicate check before review
+      {
+        const gate = await this._duplicateGate(parsed.fingerprint, file.name);
+        if (!gate) return null;
+        if (gate.openDoc) { this._go(`/editor/${gate.openDoc.id}`); return gate.openDoc; }
+      }
+
+      const confirmed = await this.showFieldMapping(parsed);
+      if (!confirmed) return null;
+      const result = await this.finalizeImportedDocument(this.parsedData, { sourceType: 'html' });
+      if (result.verified) this._go(result.route);
+      return result.document;
+    } catch (err) {
+      console.error('HTML import failed:', err);
+      throw new Error(err.message || 'Failed to read HTML document.');
+    }
   }
 
   // ==================== DOCX IMPORT ====================
@@ -3023,6 +3302,15 @@ export class ImportManager {
       if (convResult.messages.length > 0) {
         console.warn('DOCX import warnings:', convResult.messages);
       }
+
+      // Tracked changes / comments are dropped by the converter — warn so
+      // users accept changes in Word first instead of losing content silently.
+      try {
+        const probe = new TextDecoder().decode(arrayBuffer.slice(0, Math.min(arrayBuffer.byteLength, 2000000)));
+        if (/w:(ins|del|commentRangeStart|commentRangeEnd|moveFrom|moveTo)\b/.test(probe)) {
+          if (window.CC?.toast) window.CC.toast.show('This Word file has tracked changes or comments, which are not imported. Accept them in Word first if text looks missing.', 'warning', 8000);
+        }
+      } catch { /* probe is best-effort */ }
 
       // Sanitize: strip dangerous content
       const div = document.createElement('div');
@@ -3069,6 +3357,14 @@ export class ImportManager {
       parsed.sourceType = 'docx';
       parsed.images = images;
       parsed._rawText = cleanText;
+      parsed.fingerprint = this.computeFileFingerprint(cleanText);
+
+      // Duplicate check before review
+      {
+        const gate = await this._duplicateGate(parsed.fingerprint, file.name);
+        if (!gate) return null;
+        if (gate.openDoc) { this._go(`/editor/${gate.openDoc.id}`); return gate.openDoc; }
+      }
 
       const confirmed = await this.showFieldMapping(parsed);
       if (!confirmed) return null;
@@ -3113,7 +3409,15 @@ export class ImportManager {
           if (!parsed.sections) parsed.sections = [];
           parsed.sourceFile = file.name;
           parsed.sourceType = 'pdf';
-          
+          parsed.fingerprint = this.computeFileFingerprint(bytes);
+
+          // Duplicate check before review
+          {
+            const gate = await this._duplicateGate(parsed.fingerprint, file.name);
+            if (!gate) return null;
+            if (gate.openDoc) { this._go(`/editor/${gate.openDoc.id}`); return gate.openDoc; }
+          }
+
           const confirmed = await this.showFieldMapping(parsed);
           if (!confirmed) return null;
           
@@ -3125,11 +3429,60 @@ export class ImportManager {
         console.warn('Native AI parse failed, falling back to local text extraction', err);
       }
 
+  /** Prompt for a PDF password (returns string, or null when cancelled). */
+  const _promptPDFPassword = (fileName) => {
+    const modalApi = window.CC?.modal;
+    if (!modalApi || typeof modalApi.show !== 'function') return Promise.resolve(null);
+    return new Promise((resolve) => {
+      const body = document.createElement('div');
+      const msg = document.createElement('p');
+      msg.style.cssText = 'font-size:var(--font-size-sm);color:var(--text-secondary);margin-bottom:var(--space-2);';
+      msg.textContent = `"${fileName}" is password-protected. Enter the password to import it. The password never leaves your browser.`;
+      body.appendChild(msg);
+      const input = document.createElement('input');
+      input.type = 'password';
+      input.className = 'form-input';
+      input.placeholder = 'PDF password';
+      input.style.width = '100%';
+      input.autocomplete = 'off';
+      body.appendChild(input);
+      const submit = () => resolve(input.value);
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); modalApi.close(); submit(); } });
+      modalApi.show({
+        title: 'Password Required',
+        body, size: 'small',
+        actions: [
+          { label: 'Cancel', type: 'secondary', handler: () => { resolve(null); } },
+          { label: 'Unlock & Import', type: 'primary', handler: () => { submit(); } },
+        ],
+      });
+      setTimeout(() => input.focus(), 50);
+    });
+  };
+
       const pdfjsLib = await import('https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/+esm');
       pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs';
 
       const arrayBuffer = await file.arrayBuffer();
-      const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      let pdfDoc;
+      try {
+        pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      } catch (err) {
+        if (err && (err.name === 'PasswordException' || /password/i.test(err.message || ''))) {
+          const password = await _promptPDFPassword(file.name);
+          if (!password) throw new Error('PDF is password-protected.');
+          try {
+            pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer.slice(0), password }).promise;
+          } catch (err2) {
+            if (err2 && (err2.name === 'PasswordException' || /password|incorrect|invalid/i.test(err2.message || ''))) {
+              throw new Error('Wrong PDF password.');
+            }
+            throw err2;
+          }
+        } else {
+          throw err;
+        }
+      }
 
       // Feature 2: progress overlay
       progressOverlay = createElement('div', '', {});
@@ -3235,8 +3588,16 @@ export class ImportManager {
       parsed.sourceFile = file.name;
       parsed.sourceType = 'pdf';
       parsed._rawText = fullText;
+      parsed.fingerprint = this.computeFileFingerprint(fullText);
       parsed.twoColumnDetected = twoColumnDetected;
       if (ocrUsed) parsed.ocrUsed = true;
+
+      // Duplicate check before review
+      {
+        const gate = await this._duplicateGate(parsed.fingerprint, file.name);
+        if (!gate) return null;
+        if (gate.openDoc) { this._go(`/editor/${gate.openDoc.id}`); return gate.openDoc; }
+      }
 
       // Remove progress overlay before showing field mapping
       if (progressOverlay) {
@@ -3285,7 +3646,15 @@ export class ImportManager {
         if (!parsed.sections) parsed.sections = [];
         parsed.sourceFile = file.name;
         parsed.sourceType = 'image';
-        
+        parsed.fingerprint = this.computeFileFingerprint(bytes);
+
+        // Duplicate check before review
+        {
+          const gate = await this._duplicateGate(parsed.fingerprint, file.name);
+          if (!gate) return null;
+          if (gate.openDoc) { this._go(`/editor/${gate.openDoc.id}`); return gate.openDoc; }
+        }
+
         const confirmed = await this.showFieldMapping(parsed);
         if (!confirmed) return null;
         
@@ -3306,6 +3675,15 @@ export class ImportManager {
         parsed.sourceType = 'image';
         parsed._rawText = ocrText;
         parsed.ocrUsed = true;
+        parsed.fingerprint = this.computeFileFingerprint(ocrText);
+
+        // Duplicate check before review
+        {
+          const gate = await this._duplicateGate(parsed.fingerprint, file.name);
+          if (!gate) return null;
+          if (gate.openDoc) { this._go(`/editor/${gate.openDoc.id}`); return gate.openDoc; }
+        }
+
         const confirmed = await this.showFieldMapping(parsed);
         if (!confirmed) return null;
         const result = await this.finalizeImportedDocument(this.parsedData, { sourceType: 'image' });
@@ -3547,7 +3925,7 @@ export class ImportManager {
   // ==================== HTML CONTENT PARSER ====================
 
   parseHTMLContent(container) {
-    const parsed = { name: '', email: '', phone: '', location: '', sections: [] };
+    const parsed = { name: '', email: '', phone: '', location: '', linkedin: '', github: '', website: '', sections: [] };
     let currentSection = null;
 
     // Reuse the same comprehensive map as parsePlainText
@@ -3604,14 +3982,21 @@ export class ImportManager {
         }
       }
 
-      // Extract email/phone from early paragraphs
+      // Shared contact extraction from early paragraphs
+      if (!parsed.email || !parsed.phone || !parsed.linkedin) {
+        try {
+          const contact = extractContact(text);
+          if (!parsed.email && contact.email) parsed.email = contact.email;
+          if (!parsed.phone && contact.phone) parsed.phone = contact.phone;
+          if (!parsed.linkedin && contact.linkedin) parsed.linkedin = contact.linkedin;
+          if (!parsed.github && contact.github) parsed.github = contact.github;
+          if (!parsed.website && contact.website) parsed.website = contact.website;
+          if (!parsed.location && contact.location) parsed.location = contact.location;
+        } catch { /* keep inline fallback below */ }
+      }
       if (!parsed.email) {
         const emailMatch = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
         if (emailMatch) parsed.email = emailMatch[0];
-      }
-      if (!parsed.phone) {
-        const phoneMatch = text.match(/[\+]?[(]?[0-9]{1,4}[)]?[-\s.]?[(]?[0-9]{1,4}[)]?[-\s.]?[0-9]{1,9}/);
-        if (phoneMatch && phoneMatch[0].replace(/\D/g, '').length >= 7) parsed.phone = phoneMatch[0];
       }
 
       // Detect section headings — real heading tags
