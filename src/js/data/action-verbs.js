@@ -37,7 +37,7 @@ const MATCH_VERB_SET = new Set(MATCH_VERBS);
 
 /** First word of a bullet (lowercased, punctuation stripped). */
 export function firstWord(text) {
-  const m = String(text || '').trim().match(/^["'“‘(]*([A-Za-z'-]+)/);
+  const m = String(text || '').trim().match(/^[\s"'“‘(•·\-*]*([A-Za-z'-]+)/);
   return m ? m[1].toLowerCase() : '';
 }
 

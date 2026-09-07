@@ -505,7 +505,16 @@ ${resumeText}`;
   async extractSkills(document) {
     const resumeText = this._extractResumeText(document);
     if (resumeText.trim().length < 30) return [];
-    const raw = await this._callAI(resumeText, 'extract-skills');
+    let raw = null;
+    try {
+      raw = await this._callAI(resumeText, 'extract-skills');
+    } catch {
+      // Offline fallback: TF-ranked keyword suggestions (no key needed).
+      try {
+        const { suggestSkillsOffline } = await import('../utils/keywords.js');
+        return suggestSkillsOffline(resumeText, 20);
+      } catch { return []; }
+    }
     try {
       const skills = this._parseJSON(raw);
       return Array.isArray(skills) ? skills.filter(s => typeof s === 'string').slice(0, 20) : [];

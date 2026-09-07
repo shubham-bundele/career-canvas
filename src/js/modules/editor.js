@@ -5,6 +5,7 @@
 
 import { escapeHtml } from '../utils/sanitize.js';
 import { generateId } from '../utils/id.js';
+import { STORES } from '../core/db.js';
 import { timeAgo, wordCount, charCount } from '../utils/format.js';
 import { getTipsForSection } from '../data/writing-tips.js';
 import {
@@ -4156,8 +4157,35 @@ export class ResumeEditor {
     }
   }
 
+  /**
+   * Safety snapshot before AI mutations. Clones synchronously (so the
+   * pre-mutation state is captured), writes async. At most one snapshot
+   * per kind every 5 minutes to avoid spamming Versions. Best-effort.
+   */
+  snapshotBeforeAI(kind = 'ai-apply') {
+    try {
+      const now = Date.now();
+      this._aiSnapshotAt = this._aiSnapshotAt || {};
+      if (now - (this._aiSnapshotAt[kind] || 0) < 5 * 60 * 1000) return;
+      this._aiSnapshotAt[kind] = now;
+      const db = window.CC?.db;
+      if (!db || typeof db.create !== 'function' || !this.document?.id) return;
+      const data = JSON.parse(JSON.stringify(this.document));
+      db.create(STORES.SNAPSHOTS, {
+        id: generateId(),
+        documentId: this.document.id,
+        name: `Before AI (${kind})`,
+        data,
+        createdAt: new Date().toISOString(),
+      }).then(() => {
+        if (window.CC?.toast) window.CC.toast.show('Snapshot saved — restore anytime from Versions', 'info');
+      }).catch(() => {});
+    } catch { /* never block the apply */ }
+  }
+
   _applyAiSuggestion(original, suggestion, fieldHint) {
     if (!original || !suggestion || !this.document) return false;
+    this.snapshotBeforeAI('ai-apply');
     const origClean = original.trim();
     const origNorm = origClean.toLowerCase().replace(/\s+/g, ' ');
     if (origNorm.length < 2) return false;

@@ -6,6 +6,7 @@
 
 import { createElement } from '../utils/sanitize.js';
 import { generateUUID } from '../utils/id.js';
+import { ACTION_VERBS, MATCH_VERBS } from '../data/action-verbs.js';
 
 /**
  * Finding categories
@@ -16,7 +17,8 @@ const CATEGORIES = {
   BULLET_ENDINGS: 'bullet-endings',
   DUPLICATE_SKILLS: 'duplicate-skills',
   EMPTY_SECTIONS: 'empty-sections',
-  MISSING_CONTACT: 'missing-contact'
+  MISSING_CONTACT: 'missing-contact',
+  VERB_TENSE: 'verb-tense'
 };
 
 /**
@@ -28,7 +30,8 @@ const CATEGORY_LABELS = {
   [CATEGORIES.BULLET_ENDINGS]: 'Bullet Endings',
   [CATEGORIES.DUPLICATE_SKILLS]: 'Duplicate Skills',
   [CATEGORIES.EMPTY_SECTIONS]: 'Empty Sections',
-  [CATEGORIES.MISSING_CONTACT]: 'Missing Contact Info'
+  [CATEGORIES.MISSING_CONTACT]: 'Missing Contact Info',
+  [CATEGORIES.VERB_TENSE]: 'Verb Tense'
 };
 
 /**
@@ -48,6 +51,113 @@ const SEVERITY_LABELS = {
   [SEVERITY.WARNING]: 'Warning',
   [SEVERITY.INFO]: 'Info'
 };
+
+/**
+ * Present-tense-looking words that actually end in "ed" (never treat as past).
+ */
+const PRESENT_ED_EXCEPTIONS = new Set([
+  'need', 'needs', 'seed', 'feed', 'speed', 'exceed', 'exceeds',
+  'proceed', 'proceeds', 'succeed', 'succeeds', 'breed', 'bleed',
+]);
+
+/** Irregular base -> past mappings for one-click tense fixes. */
+const IRREGULAR_PAST = {
+  lead: 'led', build: 'built', oversee: 'oversaw', understand: 'understood',
+  write: 'wrote', speak: 'spoke', drive: 'drove', grow: 'grew',
+};
+
+function firstVerbWord(text) {
+  const m = String(text || '').trim().match(/^[\s"'“‘(•·\-*]*([A-Za-z'-]+)/);
+  return m ? m[1].toLowerCase() : '';
+}
+
+function isPastVerb(word) {
+  if (!word) return false;
+  if (new Set(ACTION_VERBS).has(word)) return true;
+  return word.length >= 5 && word.endsWith('ed') && !PRESENT_ED_EXCEPTIONS.has(word);
+}
+
+/** Resolve a present-tense first word to its base verb (or null). */
+function presentBaseOf(word) {
+  if (!word) return null;
+  const bases = new Set(MATCH_VERBS);
+  if (bases.has(word)) return word;
+  if (word.endsWith('s') && word.length > 3) {
+    const s1 = word.slice(0, -1);
+    if (bases.has(s1)) return s1;
+    if (word.endsWith('es')) {
+      const s2 = word.slice(0, -2);
+      if (bases.has(s2)) return s2;
+    }
+    if (word.endsWith('ies')) {
+      const s3 = word.slice(0, -3) + 'y';
+      if (bases.has(s3)) return s3;
+    }
+  }
+  return null;
+}
+
+/** Past form of a base verb, or null when unknown/unsafe. */
+function pastFormOf(base) {
+  if (!base) return null;
+  if (IRREGULAR_PAST[base]) {
+    const p = IRREGULAR_PAST[base];
+    return new Set(ACTION_VERBS).has(p) ? p : null;
+  }
+  let past;
+  if (base.endsWith('e')) past = base + 'd';
+  else if (base.endsWith('y') && base.length > 2 && !/[aeiou]y$/.test(base)) past = base.slice(0, -1) + 'ied';
+  else past = base + 'ed';
+  return new Set(ACTION_VERBS).has(past) ? past : null;
+}
+
+/**
+ * Parse a month + year out of a free-text date string.
+ * @returns {{month:number,year:number}|null}
+ */
+function parseMonthYear(value) {
+  const t = String(value || '').trim();
+  const MONTHS_LONG = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+  const MONTHS_SHORT = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'sept', 'oct', 'nov', 'dec'];
+  let m = t.match(new RegExp(`\\b(${MONTHS_LONG.join('|')})\\b[^\\d]*(\\d{4})`, 'i'));
+  if (m) return { month: MONTHS_LONG.indexOf(m[1].toLowerCase()) + 1, year: parseInt(m[2], 10) };
+  m = t.match(new RegExp(`\\b(${MONTHS_SHORT.join('|')})\\b[.,]?[^\\d]*(\\d{4})`, 'i'));
+  if (m) {
+    const key = m[1].toLowerCase().slice(0, 3);
+    const idx = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'].indexOf(key);
+    if (idx >= 0) return { month: idx + 1, year: parseInt(m[2], 10) };
+  }
+  m = t.match(/\b(\d{1,2})[/\-](\d{4})\b/);
+  if (m && +m[1] >= 1 && +m[1] <= 12) return { month: +m[1], year: parseInt(m[2], 10) };
+  m = t.match(/\b(\d{4})-(\d{2})\b/);
+  if (m && +m[2] >= 1 && +m[2] <= 12) return { month: +m[2], year: parseInt(m[1], 10) };
+  return null;
+}
+
+const MONTH_NAMES_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const MONTH_NAMES_SHORT2 = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** Render month/year in one of the DATE_FORMATS keys; null when unknown. */
+function renderInFormat(month, year, format) {
+  const mm = String(month).padStart(2, '0');
+  switch (format) {
+    case 'MONTH_YEAR_LONG': return `${MONTH_NAMES_LONG[month - 1]} ${year}`;
+    case 'MONTH_YEAR_SHORT': return `${MONTH_NAMES_SHORT2[month - 1]} ${year}`;
+    case 'MM_SLASH_YYYY': return `${mm}/${year}`;
+    case 'MM_DASH_YYYY': return `${mm}-${year}`;
+    case 'YYYY_MM': return `${year}-${mm}`;
+    case 'M_SLASH_YYYY': return `${month}/${year}`;
+    default: return null;
+  }
+}
+
+/** Reformat a date string into the target format; null when not convertible. */
+function reformatDateString(value, targetFormat) {
+  const parsed = parseMonthYear(value);
+  if (!parsed) return null;
+  const out = renderInFormat(parsed.month, parsed.year, targetFormat);
+  return out && out !== String(value).trim() ? out : null;
+}
 
 /**
  * Regex patterns for detecting date formats
@@ -376,6 +486,7 @@ export class ConsistencyStudio {
     this.checkMixedDateFormats(doc);
     this.checkInconsistentCapitalization(doc);
     this.checkInconsistentBulletEndings(doc);
+    this.checkTenseConsistency(doc);
     this.checkDuplicateSkills(doc);
     this.checkEmptyVisibleSections(doc);
   }
@@ -510,18 +621,36 @@ export class ConsistencyStudio {
     // Find the most common format
     const dominantFormat = uniqueFormats.reduce((a, b) => formatCounts[a] >= formatCounts[b] ? a : b);
 
+    const STRING_DATE_FIELDS = new Set(['startDate', 'endDate', 'issueDate', 'expirationDate']);
+
     dateEntries.forEach(entry => {
       if (entry.format === 'YYYY_ONLY') return;
       if (entry.format === dominantFormat) return;
+
+      let fixable = false;
+      let fixAction = null;
+      if (STRING_DATE_FIELDS.has(entry.field)) {
+        const newValue = reformatDateString(entry.value, dominantFormat);
+        if (newValue) {
+          fixable = true;
+          fixAction = {
+            type: 'reformat-date',
+            sectionId: (sections[entry.sectionIndex] || {}).id,
+            itemIndex: entry.itemIndex,
+            field: entry.field,
+            newValue,
+          };
+        }
+      }
 
       this.findings.push({
         id: generateUUID(),
         category: CATEGORIES.DATE_FORMAT,
         severity: SEVERITY.WARNING,
         location: 'Section: ' + entry.section + ' > ' + entry.itemLabel + ' > ' + entry.field,
-        description: 'Date "' + entry.value + '" uses ' + (DATE_FORMAT_LABELS[entry.format] || entry.format) + ' format, but most dates use ' + (DATE_FORMAT_LABELS[dominantFormat] || dominantFormat) + '.',
-        fixable: false,
-        fixAction: null
+        description: 'Date "' + entry.value + '" uses ' + (DATE_FORMAT_LABELS[entry.format] || entry.format) + ' format, but most dates use ' + (DATE_FORMAT_LABELS[dominantFormat] || dominantFormat) + '.' + (fixable ? ' One-click fix available.' : ''),
+        fixable,
+        fixAction
       });
     });
   }
@@ -766,6 +895,74 @@ export class ConsistencyStudio {
           field: bullet.field,
           addPeriod: dominantEnding
         }
+      });
+    });
+  }
+
+  // --- Check: Verb Tense Consistency ---
+
+  checkTenseConsistency(doc) {
+    const sections = doc.sections || [];
+
+    const pushBullet = (bucket, section, item, itemIndex, text, lineIndex, field) => {
+      const t = String(text || '').trim();
+      if (t.length < 5) return;
+      bucket.push({
+        text: t,
+        section: section.title || section.type || 'Unknown',
+        sectionId: section.id,
+        itemIndex,
+        lineIndex,
+        field,
+        itemLabel: item.jobTitle || item.company || item.title || item.projectName || ('Item ' + (itemIndex + 1)),
+        isCurrent: !!(item.currentlyWorking || item.current || item.currentProject),
+      });
+    };
+
+    sections.forEach((section) => {
+      if (!section.visible) return;
+      const sType = String(section.sectionType || section.type || '').toLowerCase();
+      // Tense matters in dated, narrative sections — not in skills/languages lists.
+      if (/(skill|language|interest|reference)/.test(sType)) return;
+      const bullets = [];
+      (section.items || []).forEach((item, itemIndex) => {
+        if (!item || typeof item !== 'object') return;
+        const desc = item.description || item.responsibilities || item.roleSummary || '';
+        if (typeof desc === 'string' && desc.trim()) {
+          desc.split(/\n/).map((l) => l.trim()).filter((l) => l.length > 0)
+            .forEach((line, lineIndex) => pushBullet(bullets, section, item, itemIndex, line, lineIndex,
+              item.description ? 'description' : item.responsibilities ? 'responsibilities' : 'roleSummary'));
+        }
+        (item.achievements || []).forEach((ach, achIndex) => {
+          const t = typeof ach === 'string' ? ach : ach?.text || '';
+          pushBullet(bullets, section, item, itemIndex, t, achIndex, 'achievements');
+        });
+      });
+
+      bullets.forEach((b) => {
+        if (b.isCurrent) return; // present tense expected; past achievements are normal
+        const first = firstVerbWord(b.text);
+        if (!first || isPastVerb(first)) return;
+        const base = presentBaseOf(first);
+        if (!base) return; // not a recognizable verb — stay quiet, not noisy
+        const past = pastFormOf(base);
+        const fixable = !!past;
+        this.findings.push({
+          id: generateUUID(),
+          category: CATEGORIES.VERB_TENSE,
+          severity: SEVERITY.WARNING,
+          location: 'Section: ' + b.section + ' > ' + b.itemLabel,
+          description: 'Past role uses present-tense verb "' + b.text.split(/\s+/)[0] + '" — past roles should use past tense ("' + (past || 'e.g. Led') + '"). "' + (b.text.length > 60 ? b.text.substring(0, 57) + '...' : b.text) + '"',
+          fixable,
+          fixAction: fixable ? {
+            type: 'fix-verb-tense',
+            sectionId: b.sectionId,
+            itemIndex: b.itemIndex,
+            lineIndex: b.lineIndex,
+            field: b.field,
+            pastVerb: past,
+          } : null,
+        });
       });
     });
   }
@@ -1273,6 +1470,12 @@ export class ConsistencyStudio {
         case 'remove-duplicate-sub-skill':
           fixed = this.applyRemoveDuplicateSubSkill(doc, action);
           break;
+        case 'reformat-date':
+          fixed = this.applyReformatDate(doc, action);
+          break;
+        case 'fix-verb-tense':
+          fixed = this.applyVerbTenseFix(doc, action);
+          break;
         default:
           if (window.CC && window.CC.toast) window.CC.toast.show('Unknown fix type', 'error');
           return;
@@ -1342,6 +1545,19 @@ export class ConsistencyStudio {
           fixedIds.push(finding.id);
         }
       });
+
+      // Apply date + tense fixes (field-level edits, order-independent)
+      activeFixable
+        .filter(f => f.fixAction && (f.fixAction.type === 'reformat-date' || f.fixAction.type === 'fix-verb-tense'))
+        .forEach(finding => {
+          let applied = false;
+          if (finding.fixAction.type === 'reformat-date') applied = this.applyReformatDate(doc, finding.fixAction);
+          else applied = this.applyVerbTenseFix(doc, finding.fixAction);
+          if (applied) {
+            fixedCount++;
+            fixedIds.push(finding.id);
+          }
+        });
 
       if (fixedCount > 0) {
         doc.lastModified = new Date().toISOString();
@@ -1461,11 +1677,80 @@ export class ConsistencyStudio {
     return true;
   }
 
+  applyReformatDate(doc, action) {
+    const section = (doc.sections || []).find(s => s.id === action.sectionId);
+    if (!section) return false;
+    const item = (section.items || [])[action.itemIndex];
+    if (!item || typeof item[action.field] !== 'string') return false;
+    item[action.field] = action.newValue;
+    return true;
+  }
+
+  /** Locate a bullet line (achievements array or description-family field). */
+  _locateBulletLine(doc, action) {
+    const section = (doc.sections || []).find(s => s.id === action.sectionId);
+    if (!section) return null;
+    const item = (section.items || [])[action.itemIndex];
+    if (!item) return null;
+    if (action.field === 'achievements') {
+      const achievements = item.achievements || [];
+      const ach = achievements[action.lineIndex];
+      if (ach === undefined) return null;
+      return { kind: 'achievement', achievements, index: action.lineIndex, value: typeof ach === 'string' ? ach : ach?.text || '' };
+    }
+    const text = item[action.field];
+    if (typeof text !== 'string') return null;
+    const lines = text.split('\n');
+    let nonEmpty = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (!lines[i].trim()) continue;
+      nonEmpty++;
+      if (nonEmpty === action.lineIndex) {
+        return { kind: 'field', item, field: action.field, lines, index: i, value: lines[i] };
+      }
+    }
+    return null;
+  }
+
+  applyVerbTenseFix(doc, action) {
+    const loc = this._locateBulletLine(doc, action);
+    if (!loc || !action.pastVerb) return false;
+    const apply = (oldText) => {
+      const m = String(oldText).match(/^(\s*["'“‘(•·\-*]*)([A-Za-z'-]+)([\s\S]*)$/);
+      if (!m) return null;
+      let verb = action.pastVerb;
+      if (/^[A-Z]/.test(m[2])) verb = verb.charAt(0).toUpperCase() + verb.slice(1);
+      return m[1] + verb + m[3];
+    };
+    if (loc.kind === 'achievement') {
+      const next = apply(loc.value);
+      if (next === null || next === loc.value) return false;
+      const cur = loc.achievements[loc.index];
+      loc.achievements[loc.index] = typeof cur === 'string' ? next : { ...cur, text: next };
+      return true;
+    }
+    const next = apply(loc.value);
+    if (next === null || next === loc.value) return false;
+    loc.lines[loc.index] = next;
+    loc.item[loc.field] = loc.lines.join('\n');
+    return true;
+  }
+
   // ==================== UTILITY ====================
 
   hasUnsavedChanges() {
     return false;
   }
 }
+
+export {
+  firstVerbWord,
+  isPastVerb,
+  presentBaseOf,
+  pastFormOf,
+  parseMonthYear,
+  renderInFormat,
+  reformatDateString,
+};
 
 
