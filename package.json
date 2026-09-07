@@ -6,7 +6,12 @@
   "type": "module",
   "scripts": {
     "start": "npx http-server . -p 8080 --cors -c-1 -o",
-    "serve": "npx http-server . -p 8080 --cors -c-1"
+    "serve": "npx http-server . -p 8080 --cors -c-1",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "node scripts/lint.mjs",
+    "audit": "npm audit --audit-level=moderate",
+    "check": "node scripts/smoke-check.mjs"
   },
   "keywords": [
     "resume",

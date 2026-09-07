@@ -16,7 +16,7 @@ const PROVIDERS = {
     name: 'Groq'
   },
   gemini: {
-    urlBase: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent',
+    urlBase: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
     keyPrefix: 'AIza',
     name: 'Gemini'
   }
@@ -37,6 +37,36 @@ export class AiFormatter {
   }
 
   // ==================== Key management ====================
+
+  // Shared prompt builder used by cloud + local (WebLLM) paths.
+  // Returns { system, userWrapper } where userWrapper contains {{text}}.
+  static getSystemPrompts(mode, context = '') {
+    const M = {
+      summary: { system: 'You are a resume writing expert. Return ONLY the summary text, nothing else.', userWrapper: 'Write a professional summary (40-60 words).\n\nResume:\n{{text}}' },
+      improve: { system: 'You are a resume writing expert. Return ONLY the improved text, nothing else.', userWrapper: '{{text}}' },
+      'generate-bullets': { system: 'You are a resume writing expert. Return ONLY a JSON array of strings.', userWrapper: 'Generate 6 achievement bullets. Role: {{text}}. Context: ' + context },
+      'extract-skills': { system: 'You are a resume analyst. Return ONLY a JSON array of strings.', userWrapper: 'Suggest 15-20 relevant skills.\n\nResume:\n{{text}}' },
+      'cover-letter': { system: 'You are a cover letter writer. Return ONLY the letter text.', userWrapper: 'Write a cover letter (250-350 words).\n\nResume:\n{{text}}\n\nJob: ' + context },
+      grammar: { system: 'You are a proofreader. Return ONLY a valid JSON array.', userWrapper: 'Find grammar issues. Return [{"original":"","suggestion":"","message":""}].\n\n{{text}}' },
+      tone: { system: `Rewrite in a ${context || 'professional'} tone. Return ONLY rewritten text.`, userWrapper: '{{text}}' },
+      condense: { system: 'You are a resume editor. Return ONLY condensed text under 100 chars per bullet.', userWrapper: 'Condense:\n{{text}}' },
+      parse: { system: 'You are a resume parser. Return ONLY valid JSON.', userWrapper: 'Parse:\n{{text}}' },
+    };
+    return M[mode] || { system: 'You are a helpful resume assistant. Return ONLY the result.', userWrapper: '{{text}}' };
+  }
+
+  static containsToxicity(text) {
+    if (!text) return false;
+    const banned = ['kill yourself', 'racial slur test'];
+    const t = String(text).toLowerCase();
+    return banned.some((b) => t.includes(b));
+  }
+
+  static sanitizeOutput(text, maxLen = 8000) {
+    let t = String(text || '').trim();
+    if (AiFormatter.containsToxicity(t)) return '[blocked: policy]';
+    return t.length > maxLen ? t.slice(0, maxLen) : t;
+  }
 
   static isConfigured() {
     if (localStorage.getItem('cc_ai_api_key')) return true;

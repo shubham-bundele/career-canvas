@@ -14,6 +14,14 @@ const MODEL_ID = 'Llama-3.1-8B-Instruct-q4f32_1-MLC';
 
 export class AdvancedLocalAI {
 
+  static isWebGPUSupported() {
+    return typeof navigator !== 'undefined' && !!navigator.gpu;
+  }
+
+  static requirements() {
+    return { minRAM_GB: 8, minVRAM_GB: 4, download_GB: 4.5, webgpu: true };
+  }
+
   static isEnabled() {
     return localStorage.getItem('cc_advanced_ai_enabled') === 'true' && !!navigator.gpu;
   }
@@ -25,6 +33,9 @@ export class AdvancedLocalAI {
   static async init() {
     if (_ready && engine) return engine;
     if (_initPromise) return _initPromise;
+    if (!this.isWebGPUSupported()) {
+      throw new Error('WebGPU not supported in this browser. Use Chrome/Edge 113+ with WebGPU enabled, or fall back to Transformers.js summarizer / cloud AI.');
+    }
 
     _initPromise = (async () => {
       try {
