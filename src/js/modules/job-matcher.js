@@ -3,6 +3,7 @@ import { formatTimeAgo, countWords } from '../utils/format.js';
 import { generateUUID } from '../utils/id.js';
 import eventBus from '../core/events.js';
 import { STORES } from '../core/db.js';
+import { MATCH_VERBS } from '../data/action-verbs.js';
 
 const ANALYSIS_METHOD_VERSION = '1.0.0';
 const MAX_JD_LENGTH = 50000;
@@ -1021,8 +1022,8 @@ export class JobMatcher {
         }
         const { AiFormatter } = await import('./ai-formatter.js');
         const apiKey = AiFormatter.getApiKey();
-        if (!apiKey) {
-          if (window.CC?.toast) window.CC.toast.show('No API key configured. Go to Settings to add your AI API key.', 'error');
+        if (!apiKey && !AiFormatter.hasLocalOption()) {
+          if (window.CC?.toast) window.CC.toast.show('No API key configured. Go to Settings to add your AI API key or enable Local AI.', 'error');
           aiBtn.disabled = false;
           aiBtn.textContent = '🤖 AI Enhancement';
           return;
@@ -1558,7 +1559,7 @@ export class JobMatcher {
     const tools = new Set(['aws', 'azure', 'gcp', 'docker', 'kubernetes', 'terraform', 'ansible', 'jenkins', 'github', 'gitlab', 'bitbucket', 'git', 'mongodb', 'postgresql', 'postgres', 'mysql', 'redis', 'elasticsearch', 'kafka', 'jira', 'confluence', 'figma', 'jest', 'cypress', 'playwright', 'selenium', 'pytest', 'nginx', 'prometheus', 'grafana', 'datadog', 'splunk', 'npm', 'yarn', 'linux', 'windows']);
     const certs = new Set(['pmp', 'aws certified', 'cpa', 'cfa', 'cissp', 'ccna', 'scrum master', 'csm', 'psm']);
     const soft = new Set(['communication', 'teamwork', 'leadership', 'collaboration', 'adaptability', 'creativity', 'initiative', 'mentoring', 'negotiation', 'presentation']);
-    const verbs = new Set(['manage', 'develop', 'implement', 'design', 'lead', 'analyze', 'build', 'create', 'optimize', 'maintain', 'architect', 'deploy', 'integrate', 'automate', 'deliver', 'coordinate', 'establish', 'evaluate', 'facilitate', 'mentor', 'oversee', 'spearhead', 'streamline', 'transform']);
+    const verbs = new Set(MATCH_VERBS);
 
     if (tech.has(w)) return 'hardSkills';
     if (tools.has(w)) return 'tools';

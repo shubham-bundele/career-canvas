@@ -168,12 +168,7 @@ export class LocalAI {
       const key = 'sum:' + resumeText.slice(0, 200);
       const hit = lruGet(key);
       if (hit) return hit;
-      const summarizer = await this.getPipeline('summarization');
-      const out = await summarizer(this.preprocess(resumeText), {
-        max_length: 60,
-        min_length: 30,
-      });
-      const result = this.postprocess(out[0].summary_text);
+      const result = await this.summarizeLong(resumeText, { max_length: 60, min_length: 30 }, 2000);
       lruSet(key, result);
       return result;
     }
@@ -182,12 +177,7 @@ export class LocalAI {
       const key = 'con:' + resumeText.slice(0, 200);
       const hit = lruGet(key);
       if (hit) return hit;
-      const summarizer = await this.getPipeline('summarization');
-      const out = await summarizer(this.preprocess(resumeText), {
-        max_length: 25,
-        min_length: 10,
-      });
-      const result = this.postprocess(out[0].summary_text, 500);
+      const result = await this.summarizeLong(resumeText, { max_length: 25, min_length: 10 }, 500);
       lruSet(key, result);
       return result;
     }
@@ -214,6 +204,50 @@ export class LocalAI {
     }
 
     throw new Error('Local AI failed to process the request.');
+  }
+
+  /**
+   * Split text into word-boundary chunks (pure, unit-tested).
+   * @returns {string[]}
+   */
+  static chunkText(text, maxChars = 1500) {
+    const clean = this.preprocess(text, 60000);
+    if (clean.length <= maxChars) return clean ? [clean] : [];
+    const words = clean.split(' ');
+    const chunks = [];
+    let cur = '';
+    for (const w of words) {
+      if ((cur + ' ' + w).trim().length > maxChars && cur) {
+        chunks.push(cur.trim());
+        cur = w;
+      } else {
+        cur = (cur + ' ' + w).trim();
+      }
+    }
+    if (cur.trim()) chunks.push(cur.trim());
+    return chunks;
+  }
+
+  /**
+   * Map-reduce summarize: summarize each chunk, then summarize the
+   * combination when there are several. Nothing is silently dropped.
+   */
+  static async summarizeLong(text, opts, outMax) {
+    const summarizer = await this.getPipeline('summarization');
+    const chunks = this.chunkText(text);
+    if (chunks.length <= 1) {
+      const out = await summarizer(chunks[0] || '', opts);
+      return this.postprocess(out[0].summary_text, outMax);
+    }
+    const parts = [];
+    for (const c of chunks) {
+      const out = await summarizer(c, opts);
+      parts.push(out[0].summary_text);
+    }
+    const combined = parts.join(' ');
+    if (combined.length <= 1500) return this.postprocess(combined, outMax);
+    const out = await summarizer(this.preprocess(combined, 4000), opts);
+    return this.postprocess(out[0].summary_text, outMax);
   }
 
   /**

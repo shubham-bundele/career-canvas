@@ -393,10 +393,11 @@ ${resumeText}`;
     }
 
     const raw = await this._callAI(resumeText, 'analyze');
+    let suggestions;
     try {
-      const suggestions = this._parseJSON(raw);
-      if (!Array.isArray(suggestions)) return [];
-      return suggestions.slice(0, 12).map(s => ({
+      const parsed = this._parseJSON(raw);
+      if (!Array.isArray(parsed)) return (await this._localOnlyFindings(document)).slice(0, 12);
+      suggestions = parsed.slice(0, 12).map(s => ({
         category: String(s.category || 'content'),
         severity: String(s.severity || 'info'),
         message: String(s.message || ''),
@@ -407,6 +408,74 @@ ${resumeText}`;
     } catch {
       return [{ category: 'content', severity: 'info', message: raw.substring(0, 500), original: '', suggestion: '' }];
     }
+
+    // Merge instant offline bullet findings (free, works without AI);
+    // dedupe against AI suggestions by original text, keep max 12.
+    try {
+      const { scoreBullets } = await import('../utils/bullet-score.js');
+      const seen = new Set(suggestions.map((s) => s.original));
+      for (const b of scoreBullets(this._collectBullets(document))) {
+        if (suggestions.length >= 12) break;
+        if (b.score >= 60 || !b.tips.length || seen.has(b.text.slice(0, 150))) continue;
+        seen.add(b.text.slice(0, 150));
+        suggestions.push({
+          category: 'impact',
+          severity: b.score < 35 ? 'warning' : 'info',
+          message: `Bullet score ${b.score}/100: ${b.tips[0]}`,
+          field: 'achievements',
+          original: b.text.slice(0, 150),
+          suggestion: b.tips.join(' '),
+        });
+      }
+    } catch { /* offline findings are best-effort */ }
+    return suggestions;
+  }
+
+  /** Offline-only findings (used when AI returns unusable output). */
+  async _localOnlyFindings(document) {
+    try {
+      const { scoreBullets } = await import('../utils/bullet-score.js');
+      return scoreBullets(this._collectBullets(document))
+        .filter((b) => b.score < 60 && b.tips.length)
+        .slice(0, 12)
+        .map((b) => ({
+          category: 'impact',
+          severity: b.score < 35 ? 'warning' : 'info',
+          message: `Bullet score ${b.score}/100: ${b.tips[0]}`,
+          field: 'achievements',
+          original: b.text.slice(0, 150),
+          suggestion: b.tips.join(' '),
+        }));
+    } catch { return []; }
+  }
+
+  /** Collect raw bullet strings from experience/project achievements. */
+  _collectBullets(document) {
+    const out = [];
+    for (const sec of (document?.sections || [])) {
+      if (sec.visible === false) continue;
+      const type = String(sec.sectionType || sec.type || '').toLowerCase();
+      if (!['experience', 'projects', 'achievements', 'awards'].some((k) => type.includes(k))) continue;
+      for (const item of (sec.items || [])) {
+        if (item.included === false || item.hidden) continue;
+        for (const a of (item.achievements || [])) {
+          const t = typeof a === 'string' ? a : a?.text || '';
+          if (t && t.trim()) out.push(t);
+        }
+        if (item.highlights && !item.achievements?.length) {
+          for (const h of item.highlights) {
+            const t = typeof h === 'string' ? h : h?.text || '';
+            if (t && t.trim()) out.push(t);
+          }
+        }
+      }
+      if (sec.content && !sec.items?.length) {
+        for (const line of String(sec.content).split('\n')) {
+          if (line.trim().length > 10) out.push(line.trim());
+        }
+      }
+    }
+    return out;
   }
 
   async improveText(text, context) {
@@ -455,15 +524,34 @@ ${resumeText}`;
   async checkGrammar(document) {
     const resumeText = this._extractResumeText(document);
     if (resumeText.trim().length < 30) return [];
+
+    // Offline proofread first: instant, free, and always available.
+    let offline = [];
+    try {
+      const { proofread } = await import('../utils/proofread.js');
+      offline = proofread(resumeText).slice(0, 15);
+    } catch { /* best-effort */ }
+
     const raw = await this._callAI(resumeText, 'grammar');
+    let aiIssues = [];
     try {
       const issues = this._parseJSON(raw);
-      return Array.isArray(issues) ? issues.slice(0, 15).map(i => ({
+      aiIssues = Array.isArray(issues) ? issues.slice(0, 15).map(i => ({
         original: String(i.original || ''),
         suggestion: String(i.suggestion || ''),
         message: String(i.message || '')
       })) : [];
-    } catch { return []; }
+    } catch { aiIssues = []; }
+
+    // Merge: offline first, then AI-only additions (dedupe by original).
+    const seen = new Set(offline.map((i) => i.original));
+    for (const i of aiIssues) {
+      if (offline.length >= 15) break;
+      if (!i.original || seen.has(i.original)) continue;
+      seen.add(i.original);
+      offline.push(i);
+    }
+    return offline;
   }
 
   async enhanceForJD(document, jobDescription) {

@@ -127,7 +127,7 @@ export class AdvancedLocalAI {
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt }
     ];
-    
+
     const reply = await model.chat.completions.create({
       messages,
       temperature,
@@ -136,15 +136,73 @@ export class AdvancedLocalAI {
     return reply.choices[0].message.content;
   }
 
-  static async process(resumeText, mode, context = '') {
+  /**
+   * Accumulate an OpenAI-style async token stream into full text.
+   * Pure w.r.t. iteration (works with any async iterable of chunks) —
+   * unit-tested with fake chunks so CI needs no model download.
+   */
+  static async collectStream(asyncChunks, onToken) {
+    let full = '';
+    for await (const chunk of asyncChunks) {
+      const delta = chunk?.choices?.[0]?.delta?.content || '';
+      if (delta) {
+        full += delta;
+        if (typeof onToken === 'function') {
+          try { onToken(delta, full); } catch { /* never break generation */ }
+        }
+      }
+    }
+    return full;
+  }
+
+  /**
+   * Streaming generation: tokens are delivered to onToken(delta, full)
+   * as they arrive instead of one blocking wait. Falls back to
+   * non-streaming when the engine does not support `stream: true`.
+   */
+  static async generateStream(systemPrompt, userPrompt, onToken, temperature = 0.7) {
+    if (!this.isEnabled()) throw new Error('Advanced AI is disabled');
+    const model = await this.init();
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt }
+    ];
+
+    try {
+      const stream = await model.chat.completions.create({
+        messages,
+        temperature,
+        max_tokens: 2000,
+        stream: true,
+      });
+      // Non-streaming engines may return a plain reply object here.
+      if (stream && typeof stream[Symbol.asyncIterator] === 'function') {
+        return await this.collectStream(stream, onToken);
+      }
+      if (stream?.choices?.[0]?.message?.content) {
+        const text = stream.choices[0].message.content;
+        if (typeof onToken === 'function') { try { onToken(text, text); } catch { /* ignore */ } }
+        return text;
+      }
+    } catch (err) {
+      if (err && /stream/i.test(err.message || '')) {
+        return await this.generate(systemPrompt, userPrompt, temperature);
+      }
+      throw err;
+    }
+    return await this.generate(systemPrompt, userPrompt, temperature);
+  }
+
+  static async process(resumeText, mode, context = '', onToken = null) {
     const aiFormatter = await import('./ai-formatter.js');
     const prompts = aiFormatter.AiFormatter.getSystemPrompts(mode, context);
-    
+
     let sys = prompts.system;
     let user = resumeText;
     if (prompts.userWrapper) {
       user = prompts.userWrapper.replace('{{text}}', resumeText);
     }
+    if (typeof onToken === 'function') return await this.generateStream(sys, user, onToken, 0.5);
     return await this.generate(sys, user, 0.5);
   }
 }

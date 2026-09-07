@@ -98,6 +98,9 @@ const CORE = [
   ['src/js/modules/editor.js', ['handleExport']],
   ['src/js/utils/text-parse.js', ['levenshtein', 'matchHeaderFuzzy', 'correctWord', 'correctLine', 'extractContact', 'splitSkills', 'looksLikeDateRange', 'stripMarkup', 'HEADER_CANONICAL']],
   ['src/js/modules/local-resume-parser.js', ['parseResumeLocal']],
+  ['src/js/utils/proofread.js', ['proofread']],
+  ['src/js/utils/bullet-score.js', ['scoreBullet', 'scoreBullets']],
+  ['src/js/data/action-verbs.js', ['ACTION_VERBS', 'WEAK_STARTS', 'MATCH_VERBS', 'firstWord', 'startsWithActionVerb', 'startsWeak', 'isMatchVerb']],
   ['src/js/auth/auth-service.js', ['initializeAuth', 'continueAsGuest', 'signOut']],
   ['src/js/templates/index.js', ['registerAllTemplates']],
 ];
