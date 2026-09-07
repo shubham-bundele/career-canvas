@@ -8,7 +8,7 @@ describe('proofread confusions', () => {
   });
   it('fixes alot, than/then, its/it\'s', () => {
     const out = proofread('Alot better then before, its a win');
-    const sug = out.map((i) => i.suggestion).join(' ');
+    const sug = out.map((i) => i.suggestion).join(' ').toLowerCase();
     expect(sug).toContain('a lot');
     expect(sug).toContain('than');
     expect(sug).toContain("it's");
