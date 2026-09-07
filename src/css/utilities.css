@@ -472,6 +472,44 @@
   --color-border: #000000;
   --color-bg-primary: #ffffff;
   --color-bg-secondary: #f0f0f0;
+  /* complete the token set so themed components follow along */
+  --text-primary: #000000;
+  --text-secondary: #1a1a1a;
+  --text-tertiary: #333333;
+  --text-muted: #333333;
+  --border-primary: #000000;
+  --border-secondary: #444444;
+  --border-focus: #0000cc;
+  --bg-primary: #ffffff;
+  --bg-secondary: #f0f0f0;
+  --bg-tertiary: #e0e0e0;
+  --bg-elevated: #ffffff;
+  --bg-hover: #e8e8e8;
+  --bg-active: #d8d8d8;
+  --color-primary: #0033cc;
+  --color-primary-dark: #002288;
+  --color-success: #006600;
+  --color-warning: #8a4b00;
+  --color-error: #b30000;
+  --color-danger: #b30000;
+  --color-info: #005580;
+  --text-link: #0033cc;
+  --text-link-hover: #002288;
+}
+
+.high-contrast a,
+.high-contrast .app-nav-link {
+  text-decoration: underline;
+}
+
+.high-contrast .btn-primary {
+  background: #0033cc;
+  border: 2px solid #000000;
+}
+
+.high-contrast img,
+.high-contrast svg {
+  filter: contrast(1.05);
 }
 
 /* ===== UI Font Size ===== */
@@ -479,3 +517,43 @@
 [data-ui-fontsize="medium"] { font-size: 15px; }
 [data-ui-fontsize="large"] { font-size: 17px; }
 [data-ui-fontsize="xlarge"] { font-size: 19px; }
+
+/* iOS Safari auto-zooms on focus when inputs are < 16px — keep inputs at 16px
+   even under the compact "small" UI setting (layout still compacts). */
+[data-ui-fontsize="small"] .form-input,
+[data-ui-fontsize="small"] .form-textarea,
+[data-ui-fontsize="small"] .form-select,
+[data-ui-fontsize="small"] input[type="text"],
+[data-ui-fontsize="small"] input[type="email"],
+[data-ui-fontsize="small"] input[type="tel"],
+[data-ui-fontsize="small"] input[type="url"],
+[data-ui-fontsize="small"] input[type="password"],
+[data-ui-fontsize="small"] textarea,
+[data-ui-fontsize="small"] select {
+  font-size: 16px;
+}
+
+/* ===== Skeleton loading blocks ===== */
+.cc-skeleton-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 0.5rem);
+  padding: var(--space-4, 1rem);
+}
+
+.cc-skeleton {
+  height: 14px;
+  border-radius: var(--radius-md, 6px);
+  background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-hover) 50%, var(--bg-tertiary) 75%);
+  background-size: 200% 100%;
+  animation: cc-skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+.cc-skeleton--title { height: 18px; width: 45%; }
+.cc-skeleton--line { width: 100%; }
+.cc-skeleton--short { width: 70%; }
+
+@keyframes cc-skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}

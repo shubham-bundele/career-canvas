@@ -121,6 +121,10 @@ export class JobMatcher {
     this.addListener(startCard, 'keydown', e => { if (e.key === 'Enter') this.showSetup(); });
     w.appendChild(startCard);
 
+    if (this.savedAnalyses.length === 0 && this.jobDescriptions.filter(j => !j.archived).length === 0) {
+      w.appendChild(createElement('p', 'Your past analyses and saved job descriptions will appear here.', { class: 'jm-empty-hint' }));
+    }
+
     if (this.savedAnalyses.length > 0) {
       const sec = createElement('div', '', { class: 'jm-saved-section' });
       sec.appendChild(createElement('h2', `Saved Analyses (${this.savedAnalyses.length})`, { class: 'jm-section-title' }));

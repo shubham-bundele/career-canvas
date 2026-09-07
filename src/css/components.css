@@ -1316,7 +1316,7 @@ input, select, textarea, button {
 
 @media (max-width: 768px) {
   .toast-container {
-    bottom: 72px;
+    bottom: calc(72px + env(safe-area-inset-bottom, 0px));
     right: 0;
     left: 0;
     max-width: 100%;

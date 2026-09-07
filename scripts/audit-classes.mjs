@@ -54,6 +54,11 @@ const CONTRACTS = {
   'jm-ai-desc': 'job-matcher AI description',
   // import confidence dots (import-manager.js)
   'import-confidence-dot': 'field confidence indicator',
+  // skeleton loading + empty states
+  'cc-skeleton': 'AI loading shimmer',
+  'cc-skeleton-block': 'AI loading container',
+  'jm-empty-hint': 'matcher first-run hint',
+  'dashboard-btn-secondary': 'dashboard import CTA',
 };
 
 let bad = 0;

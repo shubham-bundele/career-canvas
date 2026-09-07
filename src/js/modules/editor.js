@@ -2176,6 +2176,7 @@ export class ResumeEditor {
       const btn = document.createElement('button');
       btn.className = 'mobile-nav-btn';
       btn.dataset.active = this.mobileView === tab.id;
+      btn.setAttribute('aria-label', tab.label);
       btn.innerHTML = `<span class="icon">${tab.icon}</span><span class="label">${tab.label}</span>`;
       btn.addEventListener('click', () => {
         this.mobileView = tab.id;
@@ -2183,6 +2184,21 @@ export class ResumeEditor {
       });
       nav.appendChild(btn);
     });
+
+    // Quick actions: Save (with live status) + Export PDF — no tab switching needed
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'mobile-nav-btn mobile-nav-save';
+    saveBtn.setAttribute('aria-label', 'Save now');
+    saveBtn.innerHTML = `<span class="icon">💾</span><span class="label">${this.getSaveStatusText() || 'Save'}</span>`;
+    saveBtn.addEventListener('click', () => this.saveDocument());
+    nav.appendChild(saveBtn);
+
+    const pdfBtn = document.createElement('button');
+    pdfBtn.className = 'mobile-nav-btn';
+    pdfBtn.setAttribute('aria-label', 'Export PDF');
+    pdfBtn.innerHTML = `<span class="icon">🖨️</span><span class="label">PDF</span>`;
+    pdfBtn.addEventListener('click', () => this.handleExport('pdf'));
+    nav.appendChild(pdfBtn);
 
     return nav;
   }
@@ -2466,6 +2482,11 @@ export class ResumeEditor {
         statusEl.dataset.status = this.saveStatus;
         statusEl.textContent = this.getSaveStatusText();
       }
+    }
+    // Keep the mobile bottom-bar save button in sync
+    if (this.container) {
+      const label = this.container.querySelector('.mobile-nav-save .label');
+      if (label) label.textContent = this.saveStatus === 'saved' ? 'Saved ✓' : this.getSaveStatusText() || 'Save';
     }
   }
 
@@ -4355,6 +4376,15 @@ export class ResumeEditor {
     this.refreshLeftPanel();
   }
 
+  /** Skeleton placeholder for AI result areas while waiting (role=status for AT). */
+  aiLoadingSkeleton(label) {
+    return `<div class="cc-skeleton-block" role="status" aria-live="polite" aria-label="${String(label || 'Loading AI results').replace(/"/g, '')}">`
+      + `<div class="cc-skeleton cc-skeleton--title"></div>`
+      + `<div class="cc-skeleton cc-skeleton--line"></div>`
+      + `<div class="cc-skeleton cc-skeleton--line"></div>`
+      + `<div class="cc-skeleton cc-skeleton--short"></div></div>`;
+  }
+
   async showSmartFormatter() {
     const existing = document.querySelector('.smart-format-panel');
     if (existing) { existing.remove(); return; }
@@ -4517,7 +4547,7 @@ export class ResumeEditor {
         if (!ai.apiKey && !AiFormatter.hasLocalOption()) { showKeySetup(); return; }
         analyzeBtn.disabled = true;
         analyzeBtn.textContent = '⏳ Analyzing...';
-        aiResultsArea.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;gap:var(--space-3);padding:var(--space-6);"><div class="cc-spinner"></div><p style="color:var(--text-muted);font-size:var(--font-size-sm);">AI is analyzing your resume...</p></div>';
+        aiResultsArea.innerHTML = this.aiLoadingSkeleton('AI is analyzing your resume...');
         try {
           const suggestions = await ai.analyzeResume(this.document);
           aiResultsArea.innerHTML = '';
@@ -4648,7 +4678,7 @@ export class ResumeEditor {
         if (!ai.apiKey && !AiFormatter.hasLocalOption()) { showKeySetup(); return; }
         summaryBtn.disabled = true;
         summaryBtn.textContent = '⏳ Generating...';
-        aiResultsArea.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;gap:var(--space-3);padding:var(--space-6);"><div class="cc-spinner"></div><p style="color:var(--text-muted);font-size:var(--font-size-sm);">Generating AI summary...</p></div>';
+        aiResultsArea.innerHTML = this.aiLoadingSkeleton('Generating AI summary...');
         try {
           const summary = await ai.generateSummary(this.document);
           aiResultsArea.innerHTML = '';

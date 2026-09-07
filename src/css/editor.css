@@ -1763,6 +1763,7 @@
   border-top: 1px solid var(--border-primary);
   z-index: var(--z-fixed);
   box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.08);
+  padding-bottom: env(safe-area-inset-bottom, 0);
 }
 
 @media (max-width: 768px) {

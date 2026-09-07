@@ -652,6 +652,17 @@ export class Dashboard {
       button.addEventListener('click', clickHandler);
       this.listeners.push({ element: button, event: 'click', handler: clickHandler });
       emptyState.appendChild(button);
+
+      const importBtn = createElement('button', 'Import Existing', {
+        class: 'dashboard-btn-secondary'
+      });
+      const importHandler = () => {
+        if (this.events && typeof this.events.emit === 'function') this.events.emit('dashboard:import');
+        else if (window.CC?.router) window.CC.router.navigate('/import');
+      };
+      importBtn.addEventListener('click', importHandler);
+      this.listeners.push({ element: importBtn, event: 'click', handler: importHandler });
+      emptyState.appendChild(importBtn);
     }
 
     return emptyState;

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { encodeHTML, isValidEmail, sanitizeFilename, validateTextLength, sanitizeInput, isValidPhone } from '../../src/js/utils/sanitize.js';
 import { validateDocument, createEmptyDocument, migrateDocument } from '../../src/js/core/schema.js';
+import { Toast } from '../../src/js/modules/toast.js';
 
 describe('sanitize utils', () => {
   it('encodeHTML escapes XSS', () => {
@@ -42,5 +43,17 @@ describe('document schema', () => {
   it('migrateDocument stamps version', () => {
     const m = migrateDocument({ id: 'x', schemaVersion: 0 });
     expect(m.schemaVersion).toBe(1);
+  });
+});
+
+describe('Toast.maxVisible tiers', () => {
+  it('caps stacked toasts on small screens, 5 on desktop', () => {
+    const t = new Toast();
+    globalThis.window = { innerWidth: 390 };
+    expect(t.maxVisible()).toBe(2);
+    globalThis.window = { innerWidth: 1280 };
+    expect(t.maxVisible()).toBe(5);
+    delete globalThis.window;
+    expect(t.maxVisible()).toBe(5);
   });
 });
