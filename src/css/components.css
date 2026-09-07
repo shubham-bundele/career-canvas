@@ -2686,6 +2686,18 @@ kbd {
 .import-btn-row { display: flex; gap: var(--space-3); margin-top: var(--space-3); }
 .import-back-row { margin-top: var(--space-4); }
 
+/* Recent imports history */
+.import-history-section { margin-bottom: var(--space-6); }
+.import-history-title { font-size: var(--font-size-lg); font-weight: var(--font-weight-semibold); color: var(--text-primary); margin: 0 0 var(--space-3); }
+.import-history-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.import-history-row {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+  padding: var(--space-3) var(--space-4); background: var(--bg-elevated);
+  border: 1px solid var(--border-primary); border-radius: var(--radius-lg);
+}
+.import-history-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.import-history-meta { font-size: var(--font-size-xs); color: var(--text-muted); }
+
 .import-mapping-container { display: flex; flex-direction: column; gap: var(--space-3); }
 .import-field-group { display: flex; flex-direction: column; gap: var(--space-1); }
 .import-field-label { font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); color: var(--text-primary); }

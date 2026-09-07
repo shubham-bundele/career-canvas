@@ -109,7 +109,7 @@ export class ImportManager {
       // Finalize via unified method
       const result = await this.finalizeImportedDocument(this.parsedData, { sourceType: 'plaintext' });
       if (result.verified && window.CC?.router) {
-        window.CC.router.navigate(result.route);
+        this._go(result.route);
       }
       return result.document;
 
@@ -2175,6 +2175,18 @@ export class ImportManager {
         console.warn('Import verification: stored document id mismatch');
       }
 
+      if (verified) {
+        try {
+          this._logImport({
+            fileName: parsed.sourceFile || parsed._docName || doc.name || 'pasted text',
+            sourceType: options.sourceType || parsed.sourceType || 'file',
+            docId: (stored || doc).id,
+            docName: doc.name || 'Imported Document',
+            parser: parsed._parser || 'unknown',
+          });
+        } catch { /* history is best-effort */ }
+      }
+
       return {
         document: stored || doc,
         route: '/editor/' + (stored || doc).id,
@@ -2384,7 +2396,7 @@ export class ImportManager {
     });
     dropZone.appendChild(text);
 
-    const hint = createElement('p', 'Supported: JSON, DOCX, PDF, TXT', {
+    const hint = createElement('p', 'Supported: JSON, DOCX, PDF, TXT, images — drop several files at once for batch import', {
       class: 'import-drop-hint'
     });
     dropZone.appendChild(hint);
@@ -2403,21 +2415,17 @@ export class ImportManager {
       e.preventDefault();
       dropZone.classList.remove('drag-over');
 
-      const file = e.dataTransfer.files[0];
-      if (!file) return;
+      const files = [...(e.dataTransfer.files || [])];
+      if (!files.length) return;
 
       try {
-        const name = file.name.toLowerCase();
-        let doc;
-        if (name.endsWith('.json')) { doc = await this.importJSON(file); }
-        else if (name.endsWith('.docx')) { doc = await this.importDOCX(file); }
-        else if (name.endsWith('.pdf')) { doc = await this.importPDF(file); }
-        else if (name.endsWith('.txt')) { doc = await this.importPlainText(file); }
-        else if (name.endsWith('.doc')) {
-          if (window.CC?.toast) window.CC.toast.show('Legacy .doc files are not supported. Save as .docx first.', 'warning');
+        if (files.length === 1) {
+          const doc = await this.importFile(files[0]);
+          // importJSON does not navigate internally (others do) — take JSON drops to the editor
+          if (doc && files[0].name.toLowerCase().endsWith('.json')) this._go(`/editor/${doc.id}`);
+        } else {
+          await this.importFileBatch(files);
         }
-        else { if (window.CC?.toast) window.CC.toast.show('Unsupported file type', 'error'); }
-        if (doc && window.CC?.router) window.CC.router.navigate(`/editor/${doc.id}`);
       } catch (error) {
         console.error('Drop import failed:', error);
       }
@@ -2429,6 +2437,219 @@ export class ImportManager {
     });
 
     return dropZone;
+  }
+
+  // ==================== BATCH IMPORT + HISTORY ====================
+
+  /**
+   * Navigate unless a batch import is running (batch navigates once at end).
+   */
+  _go(route) {
+    if (!route) return;
+    if (this._batchMode) return;
+    if (window.CC?.router) window.CC.router.navigate(route);
+  }
+
+  /** Route a single file to the right importer by extension. Returns doc|null. */
+  async importFile(file) {
+    if (!file || !file.name) {
+      if (window.CC?.toast) window.CC.toast.show('No file selected', 'warning');
+      return null;
+    }
+    const name = file.name.toLowerCase();
+    if (name.endsWith('.json')) return await this.importJSON(file);
+    if (name.endsWith('.docx')) return await this.importDOCX(file);
+    if (name.endsWith('.pdf')) return await this.importPDF(file);
+    if (name.endsWith('.txt') || name.endsWith('.md')) return await this.importPlainText(file);
+    if (/\.(png|jpe?g|webp|gif|bmp)$/.test(name)) return await this.importImage(file);
+    if (name.endsWith('.doc')) {
+      if (window.CC?.toast) window.CC.toast.show('Legacy .doc files are not supported. Save as .docx first.', 'warning');
+      return null;
+    }
+    if (window.CC?.toast) window.CC.toast.show(`Unsupported file type: ${file.name}`, 'error');
+    return null;
+  }
+
+  /**
+   * Batch import: reviews files one at a time (single-file UX preserved),
+   * navigates only once at the end. Returns { imported, failed, total, docs }.
+   */
+  async importFileBatch(fileList) {
+    const files = [...(fileList || [])].filter((f) => f && f.name);
+    if (files.length === 0) return { imported: 0, failed: 0, total: 0, docs: [] };
+    if (files.length === 1) {
+      const doc = await this.importFile(files[0]);
+      return { imported: doc ? 1 : 0, failed: doc ? 0 : 1, total: 1, docs: doc ? [doc] : [] };
+    }
+    this._batchMode = true;
+    const results = { imported: 0, failed: 0, total: files.length, docs: [] };
+    try {
+      let i = 0;
+      for (const file of files) {
+        i++;
+        if (window.CC?.toast) window.CC.toast.show(`Importing ${i} of ${files.length}: ${file.name}`, 'info');
+        try {
+          const validation = this.validateFile(file, this._formatIdFor(file.name));
+          if (!validation.valid) throw new Error(validation.error);
+          const doc = await this.importFile(file);
+          if (doc) { results.imported++; results.docs.push(doc); }
+          else results.failed++;
+        } catch (err) {
+          results.failed++;
+          console.warn(`Batch import failed for ${file.name}:`, err);
+        }
+      }
+    } finally {
+      this._batchMode = false;
+    }
+    if (window.CC?.toast) {
+      window.CC.toast.show(
+        results.failed === 0
+          ? `Batch import complete: ${results.imported} of ${results.total} imported`
+          : `Batch import: ${results.imported} imported, ${results.failed} failed`,
+        results.failed === 0 ? 'success' : 'warning'
+      );
+    }
+    this._go('/dashboard');
+    return results;
+  }
+
+  _formatIdFor(fileName) {
+    const n = String(fileName || '').toLowerCase();
+    if (n.endsWith('.json')) return 'json';
+    if (n.endsWith('.docx')) return 'docx';
+    if (n.endsWith('.pdf')) return 'pdf';
+    if (/\.(png|jpe?g|webp|gif|bmp)$/.test(n)) return 'image';
+    return 'txt';
+  }
+
+  // ---------- import history (localStorage, capped) ----------
+
+  _logImport(entry) {
+    try {
+      const key = 'cc_import_history';
+      const list = JSON.parse(localStorage.getItem(key) || '[]');
+      list.unshift({ at: new Date().toISOString(), ...entry });
+      localStorage.setItem(key, JSON.stringify(list.slice(0, 30)));
+    } catch { /* ignore */ }
+  }
+
+  getImportHistory() {
+    try {
+      const list = JSON.parse(localStorage.getItem('cc_import_history') || '[]');
+      return Array.isArray(list) ? list : [];
+    } catch { return []; }
+  }
+
+  _renderHistorySection(container) {
+    const history = this.getImportHistory();
+    if (!history.length) return;
+    const sec = createElement('div', '', { class: 'import-history-section' });
+    sec.appendChild(createElement('h2', 'Recent Imports', { class: 'import-history-title' }));
+    const list = createElement('div', '', { class: 'import-history-list' });
+    history.slice(0, 8).forEach((h) => {
+      const row = createElement('div', '', { class: 'import-history-row' });
+      const info = createElement('div', '', { class: 'import-history-info' });
+      info.appendChild(createElement('strong', h.docName || h.fileName || 'Import', {}));
+      const meta = createElement('span', '', { class: 'import-history-meta' });
+      let when = h.at || '';
+      try { when = new Date(h.at).toLocaleString(); } catch { /* keep raw */ }
+      meta.textContent = `${h.fileName || ''} · ${h.sourceType || 'file'}${h.parser ? ` · ${h.parser}` : ''} · ${when}`;
+      info.appendChild(meta);
+      row.appendChild(info);
+      if (h.docId) {
+        const openBtn = createElement('button', 'Open', { class: 'btn btn-sm btn-outline', type: 'button' });
+        openBtn.addEventListener('click', () => this._go(`/editor/${h.docId}`));
+        row.appendChild(openBtn);
+      }
+      list.appendChild(row);
+    });
+    sec.appendChild(list);
+    container.appendChild(sec);
+  }
+
+  // ---------- LinkedIn profile import ----------
+
+  /** Adapt AI-parsed LinkedIn data to the app's parsed-document shape. */
+  adaptLinkedInProfile(li) {
+    const sections = [];
+    if (li.summary) sections.push({ title: 'Professional Summary', type: 'summary', content: [li.summary] });
+    if (Array.isArray(li.experience) && li.experience.length) {
+      const content = [];
+      for (const e of li.experience) {
+        const head = [e.jobTitle, e.company].filter(Boolean).join(' at ') + (e.dates ? ` (${e.dates})` : '');
+        if (head.trim()) content.push(head);
+        for (const b of (e.bullets || [])) if (b && String(b).trim()) content.push('• ' + String(b).trim());
+      }
+      sections.push({ title: 'Work Experience', type: 'experience', content });
+    }
+    if (Array.isArray(li.education) && li.education.length) {
+      sections.push({
+        title: 'Education', type: 'education',
+        content: li.education.map((e) => [e.degree, e.institution].filter(Boolean).join(', ') + (e.dates ? ` (${e.dates})` : '')),
+      });
+    }
+    if (Array.isArray(li.skills) && li.skills.length) {
+      sections.push({ title: 'Skills', type: 'skills', content: li.skills.filter(Boolean).map(String) });
+    }
+    if (Array.isArray(li.certifications) && li.certifications.length) {
+      sections.push({ title: 'Certifications', type: 'certifications', content: li.certifications.filter(Boolean).map(String) });
+    }
+    return {
+      name: li.name || '', title: li.title || '', email: '', phone: '', location: '',
+      sections, sourceType: 'linkedin', _parser: 'ai-linkedin',
+    };
+  }
+
+  /** LinkedIn paste flow: AI parse first, local smart parse as fallback. */
+  async importLinkedInFlow() {
+    const modalApi = window.CC?.modal;
+    if (!modalApi || typeof modalApi.show !== 'function') {
+      if (window.CC?.toast) window.CC.toast.show('Dialogs unavailable — paste profile text on the Plain Text card instead.', 'warning');
+      return null;
+    }
+    const text = await new Promise((resolve) => {
+      const body = document.createElement('div');
+      body.innerHTML = `<p style="font-size:var(--font-size-sm);color:var(--text-secondary);margin-bottom:var(--space-2);">Copy your LinkedIn <strong>About + Experience + Education + Skills</strong> sections and paste below. Parsing runs AI-first, offline second — nothing is uploaded except to your chosen AI provider.</p>`;
+      const ta = document.createElement('textarea');
+      ta.className = 'form-input';
+      ta.rows = 10;
+      ta.placeholder = 'Paste LinkedIn profile text here...';
+      ta.style.width = '100%';
+      body.appendChild(ta);
+      modalApi.show({
+        title: 'Import from LinkedIn',
+        body, size: 'large',
+        actions: [
+          { label: 'Cancel', type: 'secondary', handler: () => { resolve(''); } },
+          { label: 'Parse Profile', type: 'primary', handler: () => { resolve(ta.value.trim()); } },
+        ],
+      });
+    });
+    if (!text || text.length < 20) return null;
+
+    let parsed = null;
+    try {
+      const { AiFormatter } = await import('./ai-formatter.js');
+      if (window.CC?.toast) window.CC.toast.show('Analyzing LinkedIn profile with AI...', 'info');
+      const li = await new AiFormatter().parseLinkedIn(text);
+      parsed = this.adaptLinkedInProfile(li || {});
+    } catch (err) {
+      console.warn('LinkedIn AI parse failed, using local parser:', err);
+      try {
+        const { parseResumeLocal } = await import('./local-resume-parser.js');
+        parsed = parseResumeLocal(text);
+        parsed.sourceType = 'linkedin';
+        if (window.CC?.toast) window.CC.toast.show('AI unavailable — parsed locally on your device.', 'info');
+      } catch { parsed = this.parsePlainText(text); }
+    }
+    parsed._rawText = text;
+    parsed.sourceFile = 'LinkedIn profile';
+    const confirmed = await this.showFieldMapping(parsed);
+    if (!confirmed) return null;
+    const result = await this.finalizeImportedDocument(this.parsedData, { sourceType: 'linkedin' });
+    this._go(result.route);
+    return result.document;
   }
 
   async _parseTextWithFallback(text) {
@@ -2565,7 +2786,9 @@ export class ImportManager {
       { id: 'json', icon: '📋', title: 'CareerCanvas Backup', ext: '.json', desc: 'Restore a CareerCanvas JSON document or full backup.', accept: '.json' },
       { id: 'docx', icon: '📝', title: 'Word Document', ext: '.docx', desc: 'Import a resume or CV from a Microsoft Word DOCX file.', accept: '.docx', note: 'Layout may differ from original' },
       { id: 'pdf', icon: '📄', title: 'PDF Document', ext: '.pdf', desc: 'Extract resume or CV text from a PDF file.', accept: '.pdf', note: 'Scanned PDFs require OCR' },
-      { id: 'txt', icon: '📃', title: 'Plain Text', ext: '.txt', desc: 'Paste or upload resume text for structured import.', accept: '.txt' }
+      { id: 'txt', icon: '📃', title: 'Plain Text', ext: '.txt', desc: 'Paste or upload resume text for structured import.', accept: '.txt,.md' },
+      { id: 'image', icon: '🖼️', title: 'Resume Image', ext: '.png/.jpg', desc: 'AI vision first, on-device OCR fallback. No key needed for OCR.', accept: '.png,.jpg,.jpeg,.webp,.gif,.bmp' },
+      { id: 'linkedin', icon: '💼', title: 'LinkedIn Profile', ext: 'paste', desc: 'Paste profile text — AI parses it, offline parser fills in on failure.', accept: '' },
     ];
 
     formats.forEach(fmt => {
@@ -2609,9 +2832,9 @@ export class ImportManager {
         if (confirmed) {
           const result = await this.finalizeImportedDocument(this.parsedData, { sourceType: draft.sourceType || 'draft' });
           if (result.verified && window.CC?.router) {
-            window.CC.router.navigate(result.route);
+            this._go(result.route);
           } else if (window.CC?.router) {
-            window.CC.router.navigate(result.route);
+            this._go(result.route);
           }
         }
       });
@@ -2621,6 +2844,9 @@ export class ImportManager {
       banner.appendChild(discardBtn);
       container.appendChild(banner);
     }
+
+    // Recent imports (local history, works offline)
+    this._renderHistorySection(container);
 
     // Drop zone
     const dropZone = this.createDropZone();
@@ -2645,8 +2871,7 @@ export class ImportManager {
       if (!text) { if (window.CC?.toast) window.CC.toast.show('Please paste some text first', 'warning'); return; }
       try {
         const doc = await this.importPlainText(text);
-        if (doc && window.CC?.router) window.CC.router.navigate(`/editor/${doc.id}`);
-        else if (window.CC?.router) window.CC.router.navigate('/dashboard');
+        this._go(doc ? `/editor/${doc.id}` : '/dashboard');
       } catch (e) {
         if (window.CC?.toast) window.CC.toast.show('Import failed: ' + e.message, 'error');
       }
@@ -2666,16 +2891,37 @@ export class ImportManager {
   }
 
   async handleFormatSelect(fmt, container) {
+    // LinkedIn needs pasted text, not a file
+    if (fmt.id === 'linkedin') {
+      try {
+        await this.importLinkedInFlow();
+      } catch (err) {
+        if (window.CC?.toast) window.CC.toast.show('LinkedIn import failed: ' + err.message, 'error');
+      }
+      return;
+    }
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = fmt.accept;
+    input.multiple = true;
     input.style.display = 'none';
     document.body.appendChild(input);
 
     input.addEventListener('change', async (e) => {
-      const file = e.target.files[0];
+      const files = [...(e.target.files || [])];
       document.body.removeChild(input);
-      if (!file) return;
+      if (!files.length) return;
+
+      // Multi-select from any card runs the batch queue
+      if (files.length > 1) {
+        try {
+          await this.importFileBatch(files);
+        } catch (err) {
+          if (window.CC?.toast) window.CC.toast.show('Batch import failed: ' + err.message, 'error');
+        }
+        return;
+      }
+      const file = files[0];
 
       // Validate
       const validation = this.validateFile(file, fmt.id);
@@ -2688,23 +2934,28 @@ export class ImportManager {
         switch (fmt.id) {
           case 'json': {
             const doc = await this.importJSON(file);
-            if (doc && window.CC?.router) window.CC.router.navigate(`/editor/${doc.id}`);
-            else if (window.CC?.router) window.CC.router.navigate('/dashboard');
+            this._go(doc ? `/editor/${doc.id}` : '/dashboard');
             break;
           }
           case 'docx': {
             const doc = await this.importDOCX(file);
-            if (doc && window.CC?.router) window.CC.router.navigate(`/editor/${doc.id}`);
+            if (doc) this._go(`/editor/${doc.id}`);
             break;
           }
           case 'pdf': {
             const doc = await this.importPDF(file);
-            if (doc && window.CC?.router) window.CC.router.navigate(`/editor/${doc.id}`);
+            if (doc) this._go(`/editor/${doc.id}`);
             break;
           }
           case 'txt': {
             const doc = await this.importPlainText(file);
-            if (doc && window.CC?.router) window.CC.router.navigate(`/editor/${doc.id}`);
+            if (doc) this._go(`/editor/${doc.id}`);
+            break;
+          }
+          case 'image': {
+            const doc = await this.importImage(file);
+            if (doc) this._go(`/editor/${doc.id}`);
+            else this._go('/dashboard');
             break;
           }
         }
@@ -2724,7 +2975,7 @@ export class ImportManager {
 
     const name = file.name.toLowerCase();
     if (formatId === 'json' && !name.endsWith('.json')) return { valid: false, error: 'Please select a .json file' };
-    if (formatId === 'txt' && !name.endsWith('.txt')) return { valid: false, error: 'Please select a .txt file' };
+    if (formatId === 'txt' && !(/\.(txt|md)$/.test(name))) return { valid: false, error: 'Please select a .txt or .md file' };
     if (formatId === 'docx') {
       if (name.endsWith('.doc') && !name.endsWith('.docx')) {
         return { valid: false, error: 'Legacy .doc files are not supported. Open the file in Microsoft Word or LibreOffice and save as .docx, then import the new file.' };
@@ -2733,6 +2984,9 @@ export class ImportManager {
       if (!name.endsWith('.docx')) return { valid: false, error: 'Please select a .docx file' };
     }
     if (formatId === 'pdf' && !name.endsWith('.pdf')) return { valid: false, error: 'Please select a .pdf file' };
+    if (formatId === 'image' && !/\.(png|jpe?g|webp|gif|bmp)$/.test(name)) {
+      return { valid: false, error: 'Please select an image file (PNG, JPG, WebP, GIF, BMP)' };
+    }
 
     return { valid: true };
   }
@@ -2822,7 +3076,7 @@ export class ImportManager {
       // Finalize via unified method
       const result = await this.finalizeImportedDocument(this.parsedData, { sourceType: 'docx' });
       if (result.verified && window.CC?.router) {
-        window.CC.router.navigate(result.route);
+        this._go(result.route);
       }
       return result.document;
 
@@ -2864,7 +3118,7 @@ export class ImportManager {
           if (!confirmed) return null;
           
           const result = await this.finalizeImportedDocument(this.parsedData, { sourceType: 'pdf' });
-          if (result.verified && window.CC?.router) window.CC.router.navigate(result.route);
+          if (result.verified) this._go(result.route);
           return result.document;
         }
       } catch (err) {
@@ -2999,7 +3253,7 @@ export class ImportManager {
       // Finalize via unified method
       const result = await this.finalizeImportedDocument(this.parsedData, { sourceType: 'pdf' });
       if (result.verified && window.CC?.router) {
-        window.CC.router.navigate(result.route);
+        this._go(result.route);
       }
       return result.document;
 
@@ -3036,7 +3290,7 @@ export class ImportManager {
         if (!confirmed) return null;
         
         const result = await this.finalizeImportedDocument(this.parsedData, { sourceType: 'image' });
-        if (result.verified && window.CC?.router) window.CC.router.navigate(result.route);
+        if (result.verified) this._go(result.route);
         return result.document;
       } else {
         throw new Error('Invalid AI parse result');
@@ -3055,7 +3309,7 @@ export class ImportManager {
         const confirmed = await this.showFieldMapping(parsed);
         if (!confirmed) return null;
         const result = await this.finalizeImportedDocument(this.parsedData, { sourceType: 'image' });
-        if (result.verified && window.CC?.router) window.CC.router.navigate(result.route);
+        if (result.verified) this._go(result.route);
         return result.document;
       } catch (err2) {
         console.error('Image import failed:', err2);
