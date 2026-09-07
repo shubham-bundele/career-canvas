@@ -741,6 +741,12 @@ input, select, textarea, button {
   opacity: 1;
 }
 
+/* JS-driven exit state (modal.js adds this on close) */
+.modal-overlay.modal-hide {
+  opacity: 0;
+  pointer-events: none;
+}
+
 .modal {
   background: var(--bg-elevated);
   border-radius: var(--radius-xl);
@@ -1216,6 +1222,18 @@ input, select, textarea, button {
   display: flex;
   gap: var(--space-3);
   animation: slideInRight var(--duration-normal) var(--ease-out);
+}
+
+/* JS-driven visibility states (toast.js toggles these) */
+.toast-show {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.toast-hide {
+  opacity: 0;
+  transform: translateX(20%);
+  transition: opacity 0.3s ease, transform 0.3s ease;
 }
 
 @keyframes slideInRight {
@@ -2739,6 +2757,16 @@ kbd {
 .import-review-close:hover {
   color: var(--text-primary); background: var(--bg-hover);
   transform: rotate(90deg);
+}
+
+/* Field confidence dot (built by _createConfidenceDot; color set inline) */
+.import-confidence-dot {
+  display: inline-block;
+  font-size: 10px;
+  margin-left: 6px;
+  cursor: help;
+  vertical-align: middle;
+  line-height: 1;
 }
 
 /* Tabs */

@@ -11,6 +11,8 @@
     "test:watch": "vitest",
     "lint": "node scripts/lint.mjs",
     "audit": "npm audit --audit-level=moderate",
+    "audit:ui": "node scripts/audit-classes.mjs && node scripts/audit-css.mjs",
+    "audit:all": "node scripts/audit-imports.mjs && node scripts/audit-contracts.mjs && node scripts/audit-classes.mjs && node scripts/audit-css.mjs",
     "check": "node scripts/smoke-check.mjs"
   },
   "keywords": [

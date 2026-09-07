@@ -3261,6 +3261,19 @@
 }
 .smart-format-category:first-child { margin-top: 0; }
 
+/* AI-powered analysis section container (built by showSmartFormatter) */
+.smart-format-ai-section {
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg, 0.5rem);
+  background: var(--bg-secondary);
+  padding: var(--space-3, 0.75rem);
+  margin-top: var(--space-3, 0.75rem);
+}
+
+.smart-format-ai-section .smart-format-category {
+  margin-top: 0;
+}
+
 .smart-format-item {
   display: flex; align-items: flex-start; gap: var(--space-2, 0.5rem);
   padding: var(--space-2, 0.5rem) 0; font-size: var(--font-size-sm, 0.875rem);

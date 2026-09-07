@@ -116,6 +116,12 @@ class CareerCanvasApp {
   renderShell() {
     this.appEl.innerHTML = '';
 
+    const skipLink = document.createElement('a');
+    skipLink.href = '#app-main';
+    skipLink.className = 'skip-link';
+    skipLink.textContent = 'Skip to main content';
+    this.appEl.appendChild(skipLink);
+
     const header = document.createElement('header');
     header.className = 'app-header';
     header.id = 'app-header';
@@ -277,6 +283,7 @@ class CareerCanvasApp {
     main.className = 'app-main';
     main.id = 'app-main';
     main.setAttribute('role', 'main');
+    main.tabIndex = -1;
 
     const toastContainer = document.createElement('div');
     toastContainer.id = 'toast-container';
