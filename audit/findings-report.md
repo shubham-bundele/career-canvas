@@ -34,7 +34,7 @@ browser-only AI needs `cc_ai_api_key` in localStorage; Supabase vars only for au
 | # | Issue | Severity | Action |
 |---|-------|----------|--------|
 | V1 | `api/ai-analyze.js`: Groq `gsk_` key was routable to Google endpoint (key leak to wrong vendor) | High | FIXED: route by prefix; Groq→Groq, else Gemini |
-| V2 | Fake model id `gemini-3.7-flash` (nonexistent) in proxy + client | Med | FIXED: `gemini-2.0-flash` (+ `CC_GEMINI_MODEL` override) |
+| V2 | Model id pinned to env (`CC_GEMINI_MODEL`, default `gemini-3.7-flash` per owner — Gemini keys only) | Info | KEPT `gemini-3.7-flash` as default; override via env |
 | V3 | `TIMEOUT_MS` defined but never enforced; hanging serverless calls | Med | FIXED: AbortController 30 s → 504 |
 | V4 | No rate limiting on keyless proxy (abuse) | Med | FIXED: 30 req/min in-memory guard |
 | V5 | `sanitize.js isValidPhone` rejected valid numbers (UX/data-loss risk) | Low | FIXED + regression test |

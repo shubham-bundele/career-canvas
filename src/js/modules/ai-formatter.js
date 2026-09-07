@@ -16,7 +16,7 @@ const PROVIDERS = {
     name: 'Groq'
   },
   gemini: {
-    urlBase: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
+    urlBase: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent',
     keyPrefix: 'AIza',
     name: 'Gemini'
   }

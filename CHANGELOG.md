@@ -1,7 +1,7 @@
 # Changelog
 
 ## v1.1.0-rc1 (2026-09-07, branch agent/discovery-20260907-184158)
-- fix: `api/ai-analyze.js` — provider routing (Groq vs Gemini), model `gemini-2.0-flash`, 30s timeout, 30/min rate-limit, added `analyze/resume-score/keyword-optimization/ats-fix` modes.
+- fix: `api/ai-analyze.js` — provider routing (Groq vs Gemini), model `gemini-3.7-flash` (default, `CC_GEMINI_MODEL` override), 30s timeout, 30/min rate-limit, added `analyze/resume-score/keyword-optimization/ats-fix` modes.
 - fix: `AiFormatter.getSystemPrompts` + `sanitizeOutput/containsToxicity` (unbreaks WebLLM path).
 - feat: `LocalAI` LRU-50 session cache + IndexedDB `cc-local-ai` embedding cache + pure `preprocess/postprocess`.
 - fix: `AdvancedLocalAI` WebGPU guard + requirements helper.

@@ -6,7 +6,7 @@
  * Rollback: redeploy previous Vercel deployment; no DB migration involved.
  */
 
-const MODEL = process.env.CC_GEMINI_MODEL || 'gemini-2.0-flash';
+const MODEL = process.env.CC_GEMINI_MODEL || 'gemini-3.7-flash';
 const GROQ_MODEL = 'llama-3.3-70b-versatile';
 const MAX_INPUT_LENGTH = 15000;
 const TIMEOUT_MS = 30000;
