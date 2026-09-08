@@ -139,20 +139,44 @@ export class ImportManager {
    * Imports complete backup file (all documents and settings)
    * @param {File} file - Backup file
    */
+  /**
+   * Normalize any known backup shape into { documents, stores }.
+   * Accepts: data-studio full backups ({stores}), category backups
+   * ({storeName, data}), and legacy {documents} files. Pure (unit-tested).
+   */
+  normalizeBackupData(data) {
+    if (!data || typeof data !== 'object') throw new Error('Invalid backup file format');
+    // data-studio full backup: { version, exportedAt, application, stores: {...} }
+    if (data.stores && typeof data.stores === 'object') {
+      const docs = data.stores.documents || [];
+      return { documents: Array.isArray(docs) ? docs : [], stores: data.stores, version: data.version };
+    }
+    // data-studio category backup: { storeName, data: [...] }
+    if (typeof data.storeName === 'string' && Array.isArray(data.data)) {
+      if (data.storeName === 'documents') return { documents: data.data, stores: { documents: data.data }, version: data.version };
+      return { documents: [], stores: { [data.storeName]: data.data }, version: data.version };
+    }
+    // legacy shape
+    if (Array.isArray(data.documents)) return { documents: data.documents, stores: null, version: data.version };
+    throw new Error('Invalid backup file format');
+  }
+
   async importAllData(file) {
     try {
       const content = await this.readFileAsText(file);
-      const data = JSON.parse(content);
-
-      // Validate backup structure
-      if (!data.version || !data.documents) {
-        throw new Error('Invalid backup file format');
-      }
+      const normalized = this.normalizeBackupData(JSON.parse(content));
+      const raw = JSON.parse(content);
+      // Legacy shapes keep their own top-level keys; normalized documents win.
+      const data = { ...raw, documents: normalized.documents };
+      const extraStores = normalized.stores || {};
 
       // Confirm import
       const docCount = data.documents.length;
+      const extraCount = Object.entries(extraStores)
+        .filter(([k]) => k !== 'documents')
+        .reduce((n, [, rows]) => n + (Array.isArray(rows) ? rows.length : 0), 0);
       const confirmed = await modal.confirm(
-        `This backup contains ${docCount} document(s). Import all? Existing documents will not be overwritten.`,
+        `This backup contains ${docCount} document(s)${extraCount ? ` plus ${extraCount} supporting record${extraCount === 1 ? '' : 's'}` : ''}. Import all? Existing documents will not be overwritten.`,
         null,
         {
           title: 'Import Backup',
@@ -190,12 +214,16 @@ export class ImportManager {
         }
       }
 
-      // Import master profile if present
-      if (data.masterProfile) {
-        try {
-          await this.db.put('masterProfile', data.masterProfile);
-        } catch (error) {
-          console.error('Failed to import master profile:', error);
+      // Import master profile if present (legacy top-level or inside full-backup stores)
+      {
+        const mpRaw = data.masterProfile !== undefined ? data.masterProfile : extraStores.masterProfile;
+        const mp = Array.isArray(mpRaw) ? mpRaw[0] : mpRaw;
+        if (mp) {
+          try {
+            await this.db.put('masterProfile', mp);
+          } catch (error) {
+            console.error('Failed to import master profile:', error);
+          }
         }
       }
 
@@ -208,6 +236,24 @@ export class ImportManager {
         } catch (error) {
           console.error('Failed to import settings:', error);
         }
+      }
+
+      // Restore supporting stores from full/category backups
+      // (documents + masterProfile handled above; settings merged above).
+      const SKIP_STORES = new Set(['documents', 'masterProfile']);
+      for (const [storeName, rows] of Object.entries(extraStores)) {
+        if (SKIP_STORES.has(storeName) || !Array.isArray(rows) || rows.length === 0) continue;
+        let restored = 0;
+        for (const row of rows) {
+          try {
+            if (!row || typeof row !== 'object') continue;
+            await this.db.put(storeName, row);
+            restored++;
+          } catch (error) {
+            console.error(`Failed to restore ${storeName} record:`, error);
+          }
+        }
+        if (restored > 0) console.log(`Restored ${restored} ${storeName} records`);
       }
 
       toast.success(`Imported ${imported} of ${docCount} documents`);

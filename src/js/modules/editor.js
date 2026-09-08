@@ -349,6 +349,14 @@ export class ResumeEditor {
     redoBtn.addEventListener('click', this.handleRedo);
     historySection.appendChild(redoBtn);
 
+    const findBtn = document.createElement('button');
+    findBtn.className = 'toolbar-btn icon-btn';
+    findBtn.innerHTML = '&#128269;';
+    findBtn.title = 'Find & Replace';
+    findBtn.setAttribute('aria-label', 'Find and replace in document');
+    findBtn.addEventListener('click', () => this.showFindReplace());
+    historySection.appendChild(findBtn);
+
     toolbar.appendChild(historySection);
 
     // Import dropdown — shows format options, then review panel before merging
@@ -2765,6 +2773,11 @@ export class ResumeEditor {
       this.refreshLeftPanel();
     }});
 
+    // Section-level AI actions (bullets only; snapshot first)
+    actions.push({ label: '---' });
+    actions.push({ label: '✨ Improve All Bullets', handler: () => { this.runSectionAiAction(section, 'improve'); }});
+    actions.push({ label: '🗜 Condense Section', handler: () => { this.runSectionAiAction(section, 'condense'); }});
+
     // Page break preference
     actions.push({ label: section.pageBreakBefore ? '↩ Remove Page Break Before' : '📃 Page Break Before', handler: () => {
       section.pageBreakBefore = !section.pageBreakBefore;
@@ -4031,6 +4044,36 @@ export class ResumeEditor {
       updateCounts();
     });
 
+    // Paste cleanup: strip Word/Office junk at paste time (not just on save),
+    // so pasted content is immediately clean + spell-fixed.
+    editorArea.addEventListener('paste', (e) => {
+      e.preventDefault();
+      const clipboard = e.clipboardData;
+      const html = clipboard ? (clipboard.getData('text/html') || '') : '';
+      const text = clipboard ? (clipboard.getData('text/plain') || '') : '';
+      import('../utils/rich-text-sanitizer.js').catch(() => null).then(async (mod) => {
+        let clean = '';
+        if (html && mod && mod.sanitizeRichText) {
+          clean = mod.sanitizeRichText(html);
+        } else if (mod && mod.plainTextToHtml) {
+          // Plain-text paste: fix obvious typos, then convert
+          let fixed = text;
+          try {
+            const { correctLine } = await import('../utils/text-parse.js');
+            fixed = String(text).split('\n').map((l) => correctLine(l).line).join('\n');
+          } catch { /* keep original text */ }
+          clean = mod.plainTextToHtml(fixed);
+        } else {
+          clean = (text || '').replace(/</g, '&lt;');
+        }
+        document.execCommand('insertHTML', false, clean);
+        isDirty = true;
+        updateCounts();
+      }).catch(() => {
+        document.execCommand('insertText', false, text);
+      });
+    });
+
     body.appendChild(editorArea);
 
     // Counts
@@ -4402,6 +4445,132 @@ export class ResumeEditor {
     this.expandedSections.add(newSection.id);
     this.handleFieldChange();
     this.refreshLeftPanel();
+  }
+
+  /** Find & replace dialog operating on the document model. */
+  async showFindReplace() {
+    const modalApi = window.CC?.modal;
+    if (!modalApi || typeof modalApi.show !== 'function') return;
+    const { countInDoc, findReplaceInDoc } = await import('../utils/find-replace.js');
+
+    const body = document.createElement('div');
+    body.style.cssText = 'display:flex;flex-direction:column;gap:var(--space-3);min-width:min(420px,80vw);';
+    const mk = (labelText, type = 'text') => {
+      const wrap = document.createElement('label');
+      wrap.style.cssText = 'display:flex;flex-direction:column;gap:4px;font-size:var(--font-size-sm);';
+      wrap.textContent = labelText;
+      const input = document.createElement('input');
+      input.type = type;
+      input.className = 'form-input';
+      input.style.width = '100%';
+      wrap.appendChild(input);
+      body.appendChild(wrap);
+      return input;
+    };
+    const findInput = mk('Find');
+    const replaceInput = mk('Replace with');
+    const caseRow = document.createElement('label');
+    caseRow.style.cssText = 'display:flex;align-items:center;gap:8px;font-size:var(--font-size-sm);';
+    const caseBox = document.createElement('input');
+    caseBox.type = 'checkbox';
+    caseRow.appendChild(caseBox);
+    caseRow.appendChild(document.createTextNode('Match case'));
+    body.appendChild(caseRow);
+    const countEl = document.createElement('p');
+    countEl.style.cssText = 'font-size:var(--font-size-sm);color:var(--text-secondary);margin:0;';
+    countEl.textContent = 'Type to count matches.';
+    body.appendChild(countEl);
+
+    const refresh = () => {
+      const n = countInDoc(this.document, findInput.value, caseBox.checked);
+      countEl.textContent = findInput.value ? `${n} match${n === 1 ? '' : 'es'} in this document` : 'Type to count matches.';
+    };
+    findInput.addEventListener('input', refresh);
+    caseBox.addEventListener('change', refresh);
+
+    modalApi.show({
+      title: 'Find & Replace',
+      body, size: 'small',
+      actions: [
+        { label: 'Close', type: 'secondary', handler: () => {} },
+        {
+          label: 'Replace All', type: 'primary',
+          handler: () => {
+            const find = findInput.value;
+            if (!find) return false;
+            this.snapshotBeforeAI('find-replace');
+            const { count } = findReplaceInDoc(this.document, find, replaceInput.value, caseBox.checked);
+            if (count > 0) {
+              this.handleFieldChange();
+              this.refreshLeftPanel();
+              this.updatePreview();
+            }
+            countEl.textContent = count > 0 ? `Replaced ${count} occurrence${count === 1 ? '' : 's'}. Undo (Ctrl+Z) reverts.` : 'No matches found.';
+            if (window.CC?.toast) window.CC.toast.show(count > 0 ? `Replaced ${count} occurrence${count === 1 ? '' : 's'}` : 'No matches found', count > 0 ? 'success' : 'info');
+            return false; // keep open for another pass
+          },
+        },
+      ],
+    });
+    setTimeout(() => findInput.focus(), 50);
+  }
+
+  /** Section-level AI: improve or condense every bullet in a section. */
+  async runSectionAiAction(section, kind) {
+    try {
+      const targets = [];
+      for (const item of section.items || []) {
+        if (!item || typeof item !== 'object') continue;
+        (item.achievements || []).forEach((a, i) => {
+          const t = typeof a === 'string' ? a : a?.text || '';
+          if (String(t).trim().length < 5) return;
+          const list = item.achievements;
+          const idx = i;
+          const wasString = typeof a === 'string';
+          targets.push({
+            get: () => (typeof list[idx] === 'string' ? list[idx] : list[idx]?.text || ''),
+            set: (v) => { list[idx] = wasString ? v : { ...list[idx], text: v }; },
+          });
+        });
+        for (const key of ['description', 'responsibilities', 'roleSummary']) {
+          if (typeof item[key] !== 'string' || !item[key].trim()) continue;
+          const lines = item[key].split('\n');
+          lines.forEach((line, li) => {
+            if (line.trim().length < 10) return;
+            targets.push({
+              get: () => item[key].split('\n')[li] || '',
+              set: (v) => {
+                const parts = item[key].split('\n');
+                parts[li] = v;
+                item[key] = parts.join('\n');
+              },
+            });
+          });
+        }
+      }
+      if (!targets.length) {
+        if (window.CC?.toast) window.CC.toast.show('No bullets found in this section', 'info');
+        return;
+      }
+      if (window.CC?.toast) window.CC.toast.show(kind === 'improve' ? 'Improving all bullets…' : 'Condensing section…', 'info');
+      const { AiFormatter } = await import('./ai-formatter.js');
+      const ai = new AiFormatter(AiFormatter.getApiKey());
+      const texts = targets.map((t) => t.get());
+      const out = kind === 'improve' ? await ai.bulkImprove(texts) : await ai.condenseBullets(texts);
+      if (!Array.isArray(out) || !out.length) throw new Error('AI returned nothing usable');
+      this.snapshotBeforeAI('section-' + kind);
+      let applied = 0;
+      out.slice(0, targets.length).forEach((v, i) => {
+        if (v && String(v).trim()) { targets[i].set(String(v).trim()); applied++; }
+      });
+      this.handleFieldChange();
+      this.refreshLeftPanel();
+      this.updatePreview();
+      if (window.CC?.toast) window.CC.toast.show(`Updated ${applied} bullet${applied === 1 ? '' : 's'}`, 'success');
+    } catch (err) {
+      console.error('Section AI action failed:', err);
+      if (window.CC?.toast) window.CC.toast.show('Section AI failed: ' + (err.message || err), 'error');
+    }
   }
 
   /** Skeleton placeholder for AI result areas while waiting (role=status for AT). */

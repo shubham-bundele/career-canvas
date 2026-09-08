@@ -185,7 +185,116 @@ export class LinkQrStudio {
     this.qrSize = 'medium';
   }
 
-  // ==================== LIFECYCLE ====================
+  // ==================== LINK HEALTH ====================
+
+  /**
+   * Classify a fetch outcome into link health (pure — unit-tested).
+   * @returns {{state:'live'|'redirect'|'dead'|'unknown', detail:string}}
+   */
+  static classifyLinkResult({ ok, status, redirected, error } = {}) {
+    if (error) return { state: 'unknown', detail: 'Could not reach (network or CORS blocked)' };
+    if (typeof status === 'number') {
+      if (status >= 200 && status < 300) {
+        return redirected
+          ? { state: 'redirect', detail: `Redirects (HTTP ${status}) — update to the final URL` }
+          : { state: 'live', detail: `Live (HTTP ${status})` };
+      }
+      if (status >= 300 && status < 400) return { state: 'redirect', detail: `Redirects (HTTP ${status}) — update to the final URL` };
+      if (status === 429) return { state: 'unknown', detail: 'Rate-limited while checking — try again later' };
+      if (status >= 400) return { state: 'dead', detail: `Broken (HTTP ${status}) — fix or remove before sending` };
+    }
+    if (ok) return { state: 'live', detail: 'Reachable' };
+    return { state: 'unknown', detail: 'No response' };
+  }
+
+  /** Check every link sequentially; single re-render + summary toast. */
+  async checkAllLinks() {
+    if (this.checkingAll || this.links.length === 0) return;
+    this.checkingAll = true;
+    this.renderContent();
+    const tally = { live: 0, redirect: 0, dead: 0, unknown: 0 };
+    for (const link of this.links) {
+      try {
+        const state = await this.checkLinkStatus(link);
+        if (tally[state] !== undefined) tally[state]++;
+        else tally.unknown++;
+      } catch {
+        tally.unknown++;
+      }
+    }
+    this.checkingAll = false;
+    this.renderContent();
+    const parts = [];
+    if (tally.live) parts.push(`${tally.live} live`);
+    if (tally.redirect) parts.push(`${tally.redirect} redirect`);
+    if (tally.dead) parts.push(`${tally.dead} broken`);
+    if (tally.unknown) parts.push(`${tally.unknown} unreachable`);
+    if (window.CC?.toast) {
+      window.CC.toast.show(
+        parts.length ? `Link check: ${parts.join(', ')}` : 'No links to check',
+        tally.dead > 0 ? 'warning' : 'success'
+      );
+    }
+  }
+
+  /** Status badge element for a link card (null when never checked). */
+  renderStatusBadge(link) {
+    if (!link.status) return null;
+    const icons = { live: '✅', redirect: '⚠️', dead: '❌', unknown: '❔' };
+    const labels = { live: 'Live', redirect: 'Redirects', dead: 'Broken', unknown: 'Unreachable' };
+    const badge = createElement(
+      'span',
+      `${icons[link.status] || '❔'} ${labels[link.status] || link.status}`,
+      { class: `lqr-status-badge lqr-status-badge--${link.status}` }
+    );
+    const when = link.checkedAt ? `Checked ${new Date(link.checkedAt).toLocaleString()}. ` : '';
+    badge.setAttribute('title', `${when}${link.statusDetail || ''}`.trim());
+    return badge;
+  }
+  async checkLinkStatus(link) {
+    const done = (state, detail) => {
+      link.status = state;
+      link.statusDetail = detail;
+      link.checkedAt = new Date().toISOString();
+      this.saveLinks();
+      return link.status;
+    };
+    let url = String(link.url || '').trim();
+    if (!url) return done('unknown', 'Empty URL');
+    if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+    const attempt = async (method) => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10000);
+      try {
+        const res = await fetch(url, { method, redirect: 'follow', signal: controller.signal });
+        return { ok: res.ok, status: res.status, redirected: !!res.redirected };
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+    try {
+      let r;
+      try {
+        r = await attempt('HEAD');
+      } catch {
+        const c = LinkQrStudio.classifyLinkResult({ error: true });
+        return done(c.state, c.detail);
+      }
+      if ((r.status === 405 || r.status === 501) && !r.ok) {
+        try {
+          r = await attempt('GET');
+        } catch {
+          const c = LinkQrStudio.classifyLinkResult({ error: true });
+          return done(c.state, c.detail);
+        }
+      }
+      const c = LinkQrStudio.classifyLinkResult(r);
+      return done(c.state, c.detail);
+    } catch {
+      const c = LinkQrStudio.classifyLinkResult({ error: true });
+      return done(c.state, c.detail);
+    }
+  }
 
   async render() {
     this.container = createElement('div', '', { class: 'lqr-container' });
@@ -433,7 +542,20 @@ export class LinkQrStudio {
 
   renderLinkList() {
     const section = createElement('div', '', { class: 'lqr-list-section' });
-    section.appendChild(createElement('h2', `Your Links (${this.links.length})`, { class: 'lqr-section-title' }));
+    const headerRow = createElement('div', '', { class: 'lqr-list-header' });
+    headerRow.appendChild(createElement('h2', `Your Links (${this.links.length})`, { class: 'lqr-section-title' }));
+    if (this.links.length > 0) {
+      const checkAllBtn = createElement(
+        'button',
+        this.checkingAll ? 'Checking…' : 'Check All Links',
+        { class: 'btn btn-sm btn-outline lqr-check-all-btn' }
+      );
+      checkAllBtn.setAttribute('aria-label', 'Check all links for broken URLs');
+      checkAllBtn.disabled = !!this.checkingAll;
+      this.addListener(checkAllBtn, 'click', () => this.checkAllLinks());
+      headerRow.appendChild(checkAllBtn);
+    }
+    section.appendChild(headerRow);
 
     if (this.links.length === 0) {
       const empty = createElement('div', '', { class: 'lqr-empty' });
@@ -453,10 +575,12 @@ export class LinkQrStudio {
     const isActive = this.qrPreviewLinkId === link.id;
     if (isActive) card.classList.add('lqr-link-card--active');
 
-    // Header with type badge
+    // Header with type badge + health status badge
     const header = createElement('div', '', { class: 'lqr-link-card-header' });
     const typeBadge = createElement('span', link.type, { class: `lqr-type-badge lqr-type-badge--${link.type.toLowerCase().replace(/\s+/g, '-')}` });
     header.appendChild(typeBadge);
+    const statusBadge = this.renderStatusBadge(link);
+    if (statusBadge) header.appendChild(statusBadge);
     card.appendChild(header);
 
     // URL display
@@ -489,6 +613,19 @@ export class LinkQrStudio {
     copyBtn.setAttribute('aria-label', `Copy URL for ${link.label || link.url}`);
     this.addListener(copyBtn, 'click', () => this.copyUrl(link.url));
     actions.appendChild(copyBtn);
+
+    const checkBtn = createElement('button', 'Check', { class: 'btn btn-sm btn-outline lqr-action-btn' });
+    checkBtn.setAttribute('aria-label', `Check if ${link.label || link.url} is reachable`);
+    this.addListener(checkBtn, 'click', async () => {
+      checkBtn.disabled = true;
+      checkBtn.textContent = 'Checking…';
+      try {
+        await this.checkLinkStatus(link);
+      } finally {
+        this.renderContent();
+      }
+    });
+    actions.appendChild(checkBtn);
 
     const editBtn = createElement('button', 'Edit', { class: 'btn btn-sm btn-outline lqr-action-btn' });
     editBtn.setAttribute('aria-label', `Edit ${link.label || link.url}`);

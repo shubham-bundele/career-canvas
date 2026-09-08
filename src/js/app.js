@@ -969,7 +969,8 @@ class CareerCanvasApp {
           this.experienceCalculator.close();
         }
         this.experienceCalculator = new ExperienceCalculator();
-        this.experienceCalculator.show();
+        const doc = this.currentView instanceof ResumeEditor ? this.currentView.document : null;
+        this.experienceCalculator.show(undefined, doc);
       });
     }
   }

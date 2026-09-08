@@ -12,6 +12,8 @@ import eventBus from '../core/events.js';
 // ==================== CONSTANTS ====================
 
 const MAX_SNAPSHOT_NAME_LENGTH = 120;
+/* Retention: max auto+manual snapshots kept per document (oldest pruned). */
+const MAX_SNAPSHOTS_PER_DOC = 20;
 const SORT_OPTIONS = {
   LAST_MODIFIED: 'lastModified',
   NAME_ASC: 'nameAsc',
@@ -519,6 +521,22 @@ export class VersionStudio {
 
       await this.db.create(STORES.SNAPSHOTS, snapshot);
       window.CC?.toast?.('Snapshot created successfully.', 'success');
+
+      // Retention: prune oldest beyond the per-document cap (never the one just made)
+      try {
+        const all = await this.db.getByIndex(STORES.SNAPSHOTS, 'documentId', this.selectedDocId);
+        if (Array.isArray(all) && all.length > MAX_SNAPSHOTS_PER_DOC) {
+          const ordered = [...all].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+          const excess = ordered.slice(0, ordered.length - MAX_SNAPSHOTS_PER_DOC)
+            .filter((s) => s.id !== snapshot.id);
+          for (const old of excess) {
+            try { await this.db.delete(STORES.SNAPSHOTS, old.id); } catch { /* keep going */ }
+          }
+          if (excess.length > 0) console.log(`Pruned ${excess.length} old snapshots for ${this.selectedDocId}`);
+        }
+      } catch (err) {
+        console.warn('Snapshot retention prune failed:', err);
+      }
 
       // Refresh the view
       this.selectedDoc = currentDoc;
