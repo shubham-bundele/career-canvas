@@ -1,4 +1,4 @@
-const CACHE_NAME = 'careercanvas-v15';
+const CACHE_NAME = 'careercanvas-v16';
 const STATIC_ASSETS = [
   './',
   './index.html',

@@ -57,11 +57,13 @@ class CareerCanvasApp {
       // Initialize auth (non-blocking — app works as guest if not configured)
       initializeAuth().catch(e => console.warn('Auth init:', e.message));
 
-      // Check if user has been here before (guest or authenticated)
-      const hasVisited = localStorage.getItem('onboardingComplete') || localStorage.getItem('cc_auth_guest') || authState.isAuthenticated();
+      // First visit must land on signup — auth is required.
+      // Note: clearing "Cache" in Chrome does NOT clear localStorage;
+      // use "Clear site data" or Application > Storage > Clear.
+      const hasAuth = localStorage.getItem('cc_auth_guest') === 'true' || authState.isAuthenticated();
 
-      if (!hasVisited) {
-        // First visit — land on signup (auth required before using the app)
+      if (!hasAuth) {
+        // No session — force signup (guard also enforces this for deep links)
         this.router.start();
         this.router.navigate('/signup');
       } else {
@@ -605,15 +607,10 @@ class CareerCanvasApp {
         return confirm('You have unsaved changes. Are you sure you want to leave?');
       }
 
-      // Auth gate: block app routes until user chooses guest or signs in
+      // Auth gate: every app route requires an auth session or explicit guest.
+      // "onboardingComplete" alone no longer grants access — first visit must see signup.
       const publicRoutes = ['/welcome', '/login', '/signup', '/verify-email', '/forgot-password', '/reset-password', '/auth/callback', '/import', '/privacy', '/terms', '/features', '/about', '/faq', '/roadmap', '/contact', '/accessibility', '/changelog'];
-      const hasAccess = localStorage.getItem('cc_auth_guest') === 'true' || localStorage.getItem('onboardingComplete') || authState.isAuthenticated();
-
-      // If user is actively using the app (has documents or is on an editor route), grant access
-      if (!hasAccess && toPath.startsWith('/editor/')) {
-        localStorage.setItem('cc_auth_guest', 'true');
-        return true;
-      }
+      const hasAccess = localStorage.getItem('cc_auth_guest') === 'true' || authState.isAuthenticated();
 
       if (!hasAccess && !publicRoutes.includes(toPath)) {
         this.router.navigate('/signup');
