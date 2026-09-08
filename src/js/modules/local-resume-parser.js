@@ -30,11 +30,32 @@ function isContactLine(line) {
 
 /** Heuristic: line under the name that reads like a professional title. */
 function looksLikeTitle(line) {
-  if (!line || line.length > 70 || line.length < 3) return false;
+  if (!line || line.length > 80 || line.length < 2) return false;
   if (/@|https?:|www\.|linkedin|github/.test(line)) return false;
   if (/\d{4}/.test(line)) return false; // dates belong to entries
   if (/^[•·▪\-*]/.test(line.trim())) return false;
-  return /engineer|developer|designer|manager|analyst|consultant|accountant|nurse|teacher|writer|marketer|scientist|architect|administrator|specialist|executive|assistant|associate|director|lead|intern|student|professional|expert|freelancer/i.test(line);
+  return /engineer|developer|designer|manager|analyst|consultant|accountant|nurse|teacher|writer|marketer|scientist|architect|administrator|specialist|executive|assistant|associate|director|lead|intern|student|professional|expert|freelancer|tester|sdet|qa\b|quality|automation|playwright|selenium|cypress|devops|developer|frontend|front-end|backend|back-end|fullstack|full-stack|data|cloud|mobile|ios|android|recruiter|banker|lawyer|doctor|pharmacist|chef|editor|producer|photographer|driver|officer|clerk/i.test(line);
+}
+
+/**
+ * Guess the professional title from an uploaded filename:
+ * "Shubham Bundele - Playwright Automation Engineer & SDET Resume.pdf"
+ * -> "Playwright Automation Engineer & SDET". Pure.
+ */
+export function titleFromFilename(filename) {
+  if (!filename) return '';
+  const base = String(filename).split(/[\\/]/).pop().replace(/\.[a-z0-9]{1,5}$/i, '');
+  const parts = base.split(/\s+[-–—|]\s+/).map((s) => s.trim()).filter(Boolean);
+  const filler = /^(resume|cv|profile|updated|final|latest|new|\d{4})$/i;
+  for (let i = parts.length - 1; i >= 0; i--) {
+    let cand = parts[i].replace(/\b(resume|cv|profile|updated|final|latest|new|draft)\b/gi, ' ').replace(/\s{2,}/g, ' ').trim();
+    if (!cand || filler.test(cand)) continue;
+    // The first segment is usually the person's name — only take it if it
+    // actually reads like a title ("John Doe - Resume.pdf" must not -> "John Doe").
+    if (i === 0 && !looksLikeTitle(cand)) continue;
+    if (looksLikeTitle(cand) || (i > 0 && /[a-zA-Z]{3,}/.test(cand))) return cand;
+  }
+  return '';
 }
 
 /**
@@ -42,7 +63,7 @@ function looksLikeTitle(line) {
  * { name, title, email, phone, location, linkedin, github, website,
  *   sections: [{ title, type, content[] }], _parser, _corrections }
  */
-export function parseResumeLocal(text) {
+export function parseResumeLocal(text, opts = {}) {
   const cleaned = stripMarkup(text);
   const rawLines = cleaned.split('\n').map((l) => l.trim()).filter(Boolean);
 
@@ -75,9 +96,16 @@ export function parseResumeLocal(text) {
   }
 
   // Title: first title-like line right under the name (before any section).
-  for (let i = 1; i < Math.min(lines.length, 6); i++) {
+  // Skip contact lines so a pipe-joined header ("phone | email | city")
+  // can't shadow the real title sitting a few lines down.
+  for (let i = 1; i < Math.min(lines.length, 12); i++) {
+    if (isContactLine(lines[i]) && !looksLikeTitle(lines[i])) continue;
     if (looksLikeTitle(lines[i])) { parsed.title = lines[i]; break; }
     if (matchHeaderFuzzy(lines[i])) break;
+  }
+  // Fallback: many uploads are named "Name - Job Title Resume.pdf".
+  if (!parsed.title && opts.filename) {
+    parsed.title = titleFromFilename(opts.filename);
   }
 
   // Contact: whole text (emails/phones/urls can sit anywhere in the header block).
@@ -139,4 +167,4 @@ export function parseResumeLocal(text) {
   return parsed;
 }
 
-export default { parseResumeLocal };
+export default { parseResumeLocal, titleFromFilename };

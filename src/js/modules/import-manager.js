@@ -104,7 +104,7 @@ export class ImportManager {
       }
 
       // Parse text
-      const parsed = await this._parseTextWithFallback(text);
+      const parsed = await this._parseTextWithFallback(text, input instanceof File ? input.name : '');
       parsed._rawText = text;
       parsed.fingerprint = this.computeFileFingerprint(text);
       if (input instanceof File && input.name) parsed.sourceFile = input.name;
@@ -573,6 +573,22 @@ export class ImportManager {
               this._applyReparsedData(fresh, body, tabs, badge);
               if (window.CC?.toast) window.CC.toast.show('Review refreshed with the AI parse', 'success');
             } catch (err) {
+              // No key / no server / offline? Fall back to the on-device smart
+              // parser instead of leaving the user with a dead error.
+              if (this._isAiUnavailable(err) && parsedData._rawText) {
+                try {
+                  const { parseResumeLocal } = await import('./local-resume-parser.js');
+                  const fresh = parseResumeLocal(parsedData._rawText, { filename: parsedData.sourceFile });
+                  for (const k of ['sourceFile', 'sourceType', '_rawText', 'images', 'fingerprint', '_docName', '_docType', '_templateId', '_mergeMode', '_mergeTargetId']) {
+                    if (parsedData[k] !== undefined && fresh[k] === undefined) fresh[k] = parsedData[k];
+                  }
+                  this._applyReparsedData(fresh, body, tabs, badge, '📴 Re-parsed locally on your device');
+                  if (window.CC?.toast) window.CC.toast.show('AI unavailable — re-parsed locally on your device', 'info');
+                  return;
+                } catch (localErr) {
+                  console.warn('Local re-parse failed:', localErr);
+                }
+              }
               upBtn.disabled = false;
               upBtn.textContent = 'Re-parse with AI';
               if (window.CC?.toast) window.CC.toast.show('AI re-parse failed: ' + (err.message || err), 'error');
@@ -1096,31 +1112,42 @@ export class ImportManager {
               // Update stats
               const secCount2 = parsedData.sections.length;
               const lineCount2 = parsedData.sections.reduce((sum, s) => sum + (s.content?.length || 0), 0);
-              stats.textContent = `${secCount2} sections · ${lineCount2} content items · AI formatted`;
+              const localOnly = !!aiParsed._localFormat;
+              stats.textContent = `${secCount2} sections · ${lineCount2} content items · ${localOnly ? 'formatted on-device' : 'AI formatted'}`;
 
               // Update section tab label
               const secTabBtn = tabs.querySelector('[data-tab="sections"]');
               if (secTabBtn) secTabBtn.textContent = `Sections (${secCount2})`;
             }
-            aiFormatBtn.textContent = '✅ AI Formatted';
-            if (window.CC?.toast) window.CC.toast.show('AI formatting applied — review the sections', 'success');
+            aiFormatBtn.textContent = aiParsed._localFormat ? '✅ Formatted (offline)' : '✅ AI Formatted';
+            if (window.CC?.toast) window.CC.toast.show(
+              aiParsed._localFormat ? 'AI unavailable — structured locally on your device' : 'AI formatting applied — review the sections',
+              'success');
           }
         } catch (err) {
           console.error('AI format failed:', err);
-          if ((err.message.includes('API key') || err.message.includes('not configured')) && !(await AiFormatter.isServerConfigured())) {
+          // NOTE: AiFormatter is only ever imported dynamically in this module —
+          // import it here so this error path can't throw a ReferenceError and
+          // wedge the button on "AI enhancing..." forever.
+          let serverConfigured = false;
+          try {
+            const { AiFormatter } = await import('./ai-formatter.js');
+            serverConfigured = await AiFormatter.isServerConfigured();
+          } catch { /* treat as not configured */ }
+          if (!serverConfigured && this._isAiUnavailable(err)) {
             aiFormatBtn.textContent = '🤖 AI Format';
             aiFormatBtn.disabled = false;
             this._showAiKeyInputInline(footer, async () => {
               aiFormatBtn.click();
             });
-          } else if (err.message.includes('Rate limited') || err.message.includes('429')) {
+          } else if (String(err.message || err).includes('Rate limited') || String(err.message || err).includes('429')) {
             aiFormatBtn.textContent = '⏳ Wait 30s...';
             if (window.CC?.toast) window.CC.toast.show('AI rate limited — please wait before trying again', 'warning');
             setTimeout(() => { aiFormatBtn.textContent = '🤖 AI Format'; aiFormatBtn.disabled = false; }, 30000);
           } else {
             aiFormatBtn.textContent = '🤖 Retry';
             aiFormatBtn.disabled = false;
-            if (window.CC?.toast) window.CC.toast.show('AI format failed: ' + err.message, 'error');
+            if (window.CC?.toast) window.CC.toast.show('AI format failed: ' + (err.message || err), 'error');
           }
         }
       });
@@ -1163,7 +1190,7 @@ export class ImportManager {
    * Refresh an open review UI with re-parsed data (AI upgrade path).
    * Updates contact inputs, rebuilds the sections tab, and flips the badge.
    */
-  _applyReparsedData(fresh, body, tabs, badge) {
+  _applyReparsedData(fresh, body, tabs, badge, badgeLabel = '🤖 Parsed with AI') {
     this.parsedData = fresh;
     if (this._reviewInputs) {
       for (const key of ['name', 'title', 'email', 'phone', 'location', 'linkedin', 'github', 'website']) {
@@ -1187,7 +1214,7 @@ export class ImportManager {
     }
     if (badge) {
       badge.innerHTML = '';
-      badge.appendChild(createElement('span', '🤖 Parsed with AI', { class: 'import-parser-label' }));
+      badge.appendChild(createElement('span', badgeLabel, { class: 'import-parser-label' }));
     }
     this.saveImportDraft(fresh);
   }
@@ -1280,6 +1307,12 @@ export class ImportManager {
 
   // ==================== AI-POWERED IMPORT FORMATTING ====================
 
+  /** True for "no usable AI" failures (no key, no server, offline) — these get a local fallback, never a dead end. */
+  _isAiUnavailable(err) {
+    const msg = String(err?.message || err || '');
+    return /API key|not configured|require a free API key|Network error|Failed to fetch|fetch failed|Load failed|server error \(404\)|Failed to parse document natively/i.test(msg);
+  }
+
   async _aiFormatImport(parsedData) {
     const { AiFormatter } = await import('./ai-formatter.js');
     const ai = new AiFormatter();
@@ -1304,6 +1337,24 @@ export class ImportManager {
       }
       return result;
     } catch (err) {
+      // AI unavailable (no key, no server, offline): structure the resume with
+      // the on-device smart parser so the button still does something useful.
+      if (this._isAiUnavailable(err)) {
+        try {
+          const { parseResumeLocal } = await import('./local-resume-parser.js');
+          const local = parseResumeLocal(resumeText, { filename: parsedData.sourceFile });
+          if (local && Array.isArray(local.sections) && local.sections.length > 0) {
+            return {
+              name: local.name, title: local.title, email: local.email,
+              phone: local.phone, location: local.location, linkedin: local.linkedin,
+              github: local.github, website: local.website,
+              sections: local.sections, _parser: 'local-smart-v1', _localFormat: true,
+            };
+          }
+        } catch (localErr) {
+          console.warn('Local format fallback failed:', localErr);
+        }
+      }
       throw new Error(err.message || 'AI not configured or parsing failed. Paste a free Gemini API key.');
     }
   }
@@ -2881,7 +2932,7 @@ export class ImportManager {
     return result.document;
   }
 
-  async _parseTextWithFallback(text) {
+  async _parseTextWithFallback(text, filename = '') {
     // 1) AI first: on-device (LocalAI/AdvancedLocalAI) when enabled,
     //    otherwise the server proxy, otherwise the user's own Gemini key.
     try {
@@ -2899,9 +2950,10 @@ export class ImportManager {
       console.warn('AI parsing failed, falling back to local smart parsing:', err);
     }
     // 2) Offline smart parser: fuzzy headers + spell correction + contacts.
+    //    The upload filename hints the professional title ("Name - Title Resume.pdf").
     try {
       const { parseResumeLocal } = await import('./local-resume-parser.js');
-      const parsed = parseResumeLocal(text);
+      const parsed = parseResumeLocal(text, { filename });
       if (parsed && (parsed.sections?.length || parsed.name || parsed.email)) {
         if (window.CC?.toast) window.CC.toast.show('AI unavailable — parsed locally on your device.', 'info');
         return parsed;
@@ -3625,7 +3677,7 @@ export class ImportManager {
         progressBarFill.style.width = '90%';
       }
 
-      const parsed = await this._parseTextWithFallback(fullText);
+      const parsed = await this._parseTextWithFallback(fullText, file.name);
       parsed.sourceFile = file.name;
       parsed.sourceType = 'pdf';
       parsed._rawText = fullText;
@@ -3711,7 +3763,7 @@ export class ImportManager {
         if (window.CC?.toast) window.CC.toast.show('AI unavailable — reading image with on-device OCR...', 'info');
         const ocrText = await this.runImageOCR(file);
         if (!ocrText || ocrText.trim().length < 10) throw new Error('OCR found no readable text');
-        const parsed = await this._parseTextWithFallback(ocrText);
+        const parsed = await this._parseTextWithFallback(ocrText, file.name);
         parsed.sourceFile = file.name;
         parsed.sourceType = 'image';
         parsed._rawText = ocrText;

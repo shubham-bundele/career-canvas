@@ -304,6 +304,34 @@ const GITHUB_RE = /(?:https?:\/\/)?(?:www\.)?github\.com\/[^\s|·,;]+/i;
 const URL_RE = /https?:\/\/[^\s|·,;]+/i;
 // "City, ST" / "City, State/Country" — anchored on comma + capitalised place
 const LOCATION_RE = /\b([A-Z][a-zA-Z.'-]+(?:\s+[A-Z][a-zA-Z.'-]+){0,2}),\s*([A-Z][a-zA-Z.'-]+(?:\s+[A-Z][a-zA-Z.'-]+){0,2})/;
+// Words that mark the start of the next resume section — PDF text extraction
+// often joins "Pune, India" + "PROFILE SUMMARY" onto one line, and the
+// location tail would otherwise swallow the header ("Pune, India PROFILE SUMMARY").
+const LOCATION_STOP_WORDS = new Set([
+  'summary', 'profile', 'objective', 'experience', 'employment', 'education',
+  'skills', 'skill', 'projects', 'project', 'contact', 'about', 'technical',
+  'professional', 'certifications', 'certification', 'achievements', 'awards',
+  'languages', 'interests', 'declaration', 'career', 'work',
+]);
+
+/**
+ * Cut a location tail at the next-section header.
+ * Keeps single Title-Case/UPPER region codes ("USA", "UK") but drops headers:
+ * "India PROFILE SUMMARY" -> "India"; "Austin, USA" stays; "Paris, FRANCE" stays.
+ */
+export function trimLocationTail(tail) {
+  const words = String(tail || '').split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '';
+  const isAllCaps = (w) => /^[A-Z][A-Z.'-]*$/.test(w.replace(/[^A-Za-z.'-]/g, ''));
+  let cut = words.length;
+  for (let i = 1; i < words.length; i++) {
+    const w = words[i];
+    if (LOCATION_STOP_WORDS.has(w.toLowerCase())) { cut = i; break; }
+    if (isAllCaps(w) && i + 1 < words.length && isAllCaps(words[i + 1])) { cut = i; break; }
+  }
+  const kept = words.slice(0, cut);
+  return kept.length > 0 ? kept.join(' ') : String(tail).trim();
+}
 
 /**
  * Extract contact fields from free text.
@@ -328,8 +356,8 @@ export function extractContact(text) {
   }
   const loc = text.match(LOCATION_RE);
   if (loc) {
-    const tail = loc[2].split(/\s+/).slice(0, 3).join(' ');
-    out.location = `${loc[1]}, ${tail}`;
+    const tail = trimLocationTail(loc[2].split(/\s+/).slice(0, 3).join(' '));
+    out.location = tail ? `${loc[1]}, ${tail}` : loc[1];
   }
   return out;
 }

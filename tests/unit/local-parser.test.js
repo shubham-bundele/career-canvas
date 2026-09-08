@@ -8,7 +8,7 @@ import {
   splitSkills,
   looksLikeDateRange,
 } from '../../src/js/utils/text-parse.js';
-import { parseResumeLocal } from '../../src/js/modules/local-resume-parser.js';
+import { parseResumeLocal, titleFromFilename } from '../../src/js/modules/local-resume-parser.js';
 
 describe('levenshtein', () => {
   it('exact = 0, one edit = 1', () => {
@@ -146,5 +146,51 @@ describe('parseResumeLocal end-to-end', () => {
   it('tags itself and handles empty input', () => {
     expect(parseResumeLocal(typoResume)._parser).toBe('local-smart-v1');
     expect(parseResumeLocal('').sections).toEqual([]);
+  });
+});
+
+describe('location header-leak (PDF line joining)', () => {
+  it('drops a trailing ALL-CAPS section header', () => {
+    const c = extractContact('Shubham Bundele\nshubham@example.com\nPune, India PROFILE SUMMARY\nDetail work');
+    expect(c.location).toBe('Pune, India');
+  });
+  it('keeps region codes and normal places', () => {
+    expect(extractContact('Austin, USA').location).toBe('Austin, USA');
+    expect(extractContact('Paris, FRANCE').location).toBe('Paris, FRANCE');
+    expect(extractContact('Austin, Texas').location).toMatch(/Austin/);
+  });
+  it('parseResumeLocal never leaks headers into location', () => {
+    const out = parseResumeLocal('Shubham Bundele\nPlaywright Automation Engineer\nPune, India PROFILE SUMMARY\nPROFILE SUMMARY\nBuilt frameworks.');
+    expect(out.location).not.toMatch(/PROFILE|SUMMARY/);
+  });
+});
+
+describe('titleFromFilename', () => {
+  it('extracts title from "Name - Title Resume.pdf"', () => {
+    expect(titleFromFilename('Shubham Bundele - Playwright Automation Engineer & SDET Resume.pdf'))
+      .toBe('Playwright Automation Engineer & SDET');
+  });
+  it('rejects bare names and filler-only names', () => {
+    expect(titleFromFilename('John Doe - Resume.pdf')).toBe('');
+    expect(titleFromFilename('Resume.pdf')).toBe('');
+    expect(titleFromFilename('')).toBe('');
+  });
+});
+
+describe('title detection', () => {
+  it('recognizes QA/SDET/automation titles', () => {
+    const out = parseResumeLocal('Jane Doe\nSDET\njane@x.com\nEXPERIENCE\nDid things.');
+    expect(out.title).toBe('SDET');
+  });
+  it('skips pipe-joined contact lines to find the title below', () => {
+    const out = parseResumeLocal('Jane Doe\n+1-555-1234 | jane@x.com | Austin, Texas\nQA Automation Engineer\nEXPERIENCE\nDid things.');
+    expect(out.title).toBe('QA Automation Engineer');
+  });
+  it('falls back to the filename hint', () => {
+    const out = parseResumeLocal(
+      'Jane Doe\n+1-555-1234 | jane@x.com\nEXPERIENCE\nDid things.',
+      { filename: 'Jane Doe - Senior QA Engineer Resume.pdf' }
+    );
+    expect(out.title).toBe('Senior QA Engineer');
   });
 });
