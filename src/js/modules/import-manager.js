@@ -1078,12 +1078,19 @@ export class ImportManager {
       // AI Format button
       const aiFormatBtn = createElement('button', '🤖 AI Format', { class: 'btn btn-outline' });
       aiFormatBtn.title = 'Use AI to intelligently detect sections, headings, and structure';
+      let aiFormatBusy = false;
       aiFormatBtn.addEventListener('click', async () => {
+        if (aiFormatBusy) return;
+        aiFormatBusy = true;
         aiFormatBtn.disabled = true;
+        const prevLabel = aiFormatBtn.textContent;
         aiFormatBtn.textContent = '⏳ AI enhancing...';
         try {
           const aiParsed = await this._aiFormatImport(parsedData);
-          if (aiParsed) {
+          if (!aiParsed) {
+            aiFormatBtn.textContent = prevLabel;
+            return;
+          }
             // Merge AI results — AI fills empty contact fields, keeps existing values
             if (aiParsed.name && this._reviewInputs.name && !this._reviewInputs.name.value.trim()) this._reviewInputs.name.value = aiParsed.name;
             if (aiParsed.email && this._reviewInputs.email && !this._reviewInputs.email.value.trim()) this._reviewInputs.email.value = aiParsed.email;
@@ -1126,7 +1133,18 @@ export class ImportManager {
             if (window.CC?.toast) window.CC.toast.show(
               aiParsed._localFormat ? 'AI unavailable — structured locally on your device' : 'AI formatting applied — review the sections',
               'success');
-          }
+            // Allow re-running — re-enable after a short success pause so the user sees the result.
+            setTimeout(() => {
+              if (aiFormatBtn.isConnected) {
+                aiFormatBtn.textContent = aiParsed._localFormat ? '🤖 AI Format' : '🤖 AI Format';
+                aiFormatBtn.title = aiParsed._localFormat
+                  ? 'Re-run AI formatting (will re-parse the current review content)'
+                  : 'Re-run AI formatting';
+                aiFormatBtn.disabled = false;
+                aiFormatBusy = false;
+              }
+            }, 1200);
+            return;
         } catch (err) {
           console.error('AI format failed:', err);
           // NOTE: AiFormatter is only ever imported dynamically in this module —
@@ -1139,20 +1157,22 @@ export class ImportManager {
           } catch { /* treat as not configured */ }
           if (!serverConfigured && this._isAiUnavailable(err)) {
             aiFormatBtn.textContent = '🤖 AI Format';
-            aiFormatBtn.disabled = false;
             this._showAiKeyInputInline(footer, async () => {
               aiFormatBtn.click();
             });
           } else if (String(err.message || err).includes('Rate limited') || String(err.message || err).includes('429')) {
             aiFormatBtn.textContent = '⏳ Wait 30s...';
             if (window.CC?.toast) window.CC.toast.show('AI rate limited — please wait before trying again', 'warning');
-            setTimeout(() => { aiFormatBtn.textContent = '🤖 AI Format'; aiFormatBtn.disabled = false; }, 30000);
+            setTimeout(() => { aiFormatBtn.textContent = '🤖 AI Format'; aiFormatBtn.disabled = false; aiFormatBusy = false; }, 30000);
+            return;
           } else {
             aiFormatBtn.textContent = '🤖 Retry';
-            aiFormatBtn.disabled = false;
             if (window.CC?.toast) window.CC.toast.show('AI format failed: ' + (err.message || err), 'error');
           }
         }
+        // Error path — always re-enable so the button never wedges on "AI enhancing...".
+        aiFormatBtn.disabled = false;
+        aiFormatBusy = false;
       });
       footer.appendChild(aiFormatBtn);
 

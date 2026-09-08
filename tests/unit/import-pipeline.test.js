@@ -108,12 +108,20 @@ describe('mergeDuplicateSections', () => {
   it('merges same-type sections and drops empty ones', () => {
     const { sections, merged } = mergeDuplicateSections([
       { title: 'Skills', type: 'skills', content: ['React'] },
-      { title: 'SKILLS', type: 'skills', content: ['Node'] },
+      { title: 'SKILLS', type: 'skills', content: ['React'] }, // exact subset → merge
       { title: 'Empty', type: 'custom', content: [] },
     ]);
     expect(sections).toHaveLength(1);
-    expect(sections[0].content).toEqual(expect.arrayContaining(['React', 'Node']));
+    expect(sections[0].content).toEqual(expect.arrayContaining(['React']));
     expect(merged).toBe(2); // one merged + one dropped
+  });
+  it('keeps two distinct blocks under the same heading instead of collapsing', () => {
+    const { sections } = mergeDuplicateSections([
+      { title: 'Professional Experience', type: 'experience', content: ['Acme — Senior Engineer', 'Led migration'] },
+      { title: 'Professional Experience', type: 'experience', content: ['Beta — SDET', 'Built automation'] },
+    ]);
+    expect(sections).toHaveLength(2);
+    expect(sections[1].title).toBe('Professional Experience (2)');
   });
 });
 

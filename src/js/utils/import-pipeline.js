@@ -42,11 +42,19 @@ export function cleanExtractedText(rawText) {
     // Standardize bullet glyphs
     const bulleted = line.match(/^([\-*▪▸►⦁◦‣·o>]+)\s+(.*)$/);
     if (bulleted) line = `• ${bulleted[2].trim()}`;
-    // Rejoin wrapped continuation lines (lowercase start, prev line not terminal)
+    // Rejoin wrapped continuation lines.
     const prev = lines[lines.length - 1];
-    if (prev && !/^[•\d]/.test(prev) && !/[.:;!?]$/.test(prev)
+    const isWrappedLower = prev && !/^[•\d]/.test(prev) && !/[.:;!?]$/.test(prev)
       && /^[a-z]/.test(line) && line.length < 80 && prev.length < 100
-      && !matchHeaderFuzzy(line) && !matchHeaderFuzzy(prev)) {
+      && !matchHeaderFuzzy(line) && !matchHeaderFuzzy(prev);
+    // Also rejoin single-word fragments like "User" + "Acceptance Testing (UAT)"
+    // that were split by PDF column width — short prev, capitalized continuation.
+    const isFragmented = prev && !/^[•\d]/.test(prev) && !/[.:;!?]$/.test(prev)
+      && prev.split(/\s+/).length <= 2 && prev.length <= 12 && prev.length > 1
+      && /^[A-Z]/.test(line) && line.length < 80 && line.split(/\s+/).length >= 2
+      && !matchHeaderFuzzy(line) && !matchHeaderFuzzy(prev)
+      && !line.includes(':') && !prev.includes(':');
+    if (isWrappedLower || isFragmented) {
       lines[lines.length - 1] = `${prev} ${line}`;
       stats.linesJoined++;
       continue;
@@ -250,36 +258,57 @@ export function tidyBullets(lines) {
 
 /**
  * Merge duplicate sections (same canonical type+title) by concatenating content
- * and _entries/_eduEntries. Drops sections whose content is empty after cleanup.
- * Returns { sections, merged } — merged counts dropped duplicate sections.
+ * and _entries/_eduEntries. Drops only truly empty sections (no content, no
+ * entries, no eduEntries, no _hasDates). Never merges two non-empty sections
+ * that carry different substantive content — only collapses exact empties or
+ * exact title duplicates where one side is empty. Returns { sections, merged }.
  */
 export function mergeDuplicateSections(sections) {
-  const byKey = new Map();
+  const kept = [];
   let merged = 0;
   for (const sec of sections || []) {
-    if (!sec || typeof sec !== 'object') continue;
+    if (!sec || typeof sec !== 'object') { merged++; continue; }
     const hasContent = (Array.isArray(sec.content) ? sec.content.length > 0 : false)
       || (Array.isArray(sec._entries) && sec._entries.length > 0)
-      || (Array.isArray(sec._eduEntries) && sec._eduEntries.length > 0);
+      || (Array.isArray(sec._eduEntries) && sec._eduEntries.length > 0)
+      || !!sec._hasDates;
     if (!hasContent) { merged++; continue; }
-    const key = `${sec.type || 'custom'}::${(sec.title || '').toLowerCase()}`;
-    if (!byKey.has(key)) { byKey.set(key, { ...sec, content: [...(sec.content || [])] }); continue; }
-    const prev = byKey.get(key);
-    // Merge content (dedupe lines case-insensitively)
-    const seen = new Set(prev.content.map((l) => String(l).toLowerCase()));
-    for (const line of sec.content || []) {
-      if (!seen.has(String(line).toLowerCase())) { prev.content.push(line); seen.add(String(line).toLowerCase()); }
-    }
-    // Merge entry arrays when present
-    if (Array.isArray(sec._entries) && sec._entries.length > 0) {
-      prev._entries = [...(prev._entries || []), ...sec._entries];
-    }
-    if (Array.isArray(sec._eduEntries) && sec._eduEntries.length > 0) {
-      prev._eduEntries = [...(prev._eduEntries || []), ...sec._eduEntries];
-    }
-    merged++;
+    kept.push(sec);
   }
-  return { sections: [...byKey.values()], merged };
+  // Only collapse exact key collisions where one section is a subset of the other.
+  // If two sections share the same key but have disjoint non-empty content,
+  // keep both (e.g. two distinct "Professional Experience" blocks from different
+  // pages) — merging them would silently drop a section from the count.
+  const byKey = new Map();
+  const out = [];
+  for (const sec of kept) {
+    const key = `${sec.type || 'custom'}::${(sec.title || '').toLowerCase()}`;
+    if (!byKey.has(key)) { byKey.set(key, sec); out.push(sec); continue; }
+    const prev = byKey.get(key);
+    const prevSet = new Set((prev.content || []).map((l) => String(l).toLowerCase()));
+    const secSet = new Set((sec.content || []).map((l) => String(l).toLowerCase()));
+    const overlap = [...secSet].filter((l) => prevSet.has(l)).length;
+    const subset = overlap === secSet.size || overlap === prevSet.size;
+    if (subset) {
+      // Merge — one is a subset of the other, safe to collapse.
+      for (const line of sec.content || []) {
+        if (!prevSet.has(String(line).toLowerCase())) { prev.content.push(line); prevSet.add(String(line).toLowerCase()); }
+      }
+      if (Array.isArray(sec._entries) && sec._entries.length > 0) prev._entries = [...(prev._entries || []), ...sec._entries];
+      if (Array.isArray(sec._eduEntries) && sec._eduEntries.length > 0) prev._eduEntries = [...(prev._eduEntries || []), ...sec._eduEntries];
+      merged++;
+    } else {
+      // Distinct content under the same heading — keep both, disambiguate titles.
+      let suffix = 2;
+      let newTitle = `${sec.title} (${suffix})`;
+      let newKey = `${sec.type}::${newTitle.toLowerCase()}`;
+      while (byKey.has(newKey)) { suffix++; newTitle = `${sec.title} (${suffix})`; newKey = `${sec.type}::${newTitle.toLowerCase()}`; }
+      const copy = { ...sec, title: newTitle };
+      byKey.set(newKey, copy);
+      out.push(copy);
+    }
+  }
+  return { sections: out, merged };
 }
 
 // ---- Orchestrator -----------------------------------------------------------
@@ -304,14 +333,88 @@ export function normalizePipeline(parsed, opts = {}) {
       report.typosFixed += r.fixed;
     }
     if (canon.type === 'skills') {
-      const flat = [];
-      for (const line of content) {
-        flat.push(...String(line).split(/[,•|/;]+/).map((s) => s.replace(/^[-–—*+\s]+/, '').trim()).filter(Boolean));
+      // Preserve original subcategories ("API Testing & Reporting: Postman") while
+      // grouping only the bare skills that have no category. This keeps the
+      // resume's own headers (Technical, Tools, Soft Skills, etc.) intact
+      // instead of collapsing them into 4 generic buckets.
+      const groups = new Map(); // category -> skills[]
+      let currentCategory = null;
+      const bare = [];
+      const cleanSkill = (s) => s.replace(/^[-–—*+\s]+/, '').replace(/\s+/g, ' ').trim().replace(/[.]+$/, '').trim();
+      for (const raw of content) {
+        const line = String(raw || '').trim();
+        if (!line) continue;
+        const stripped = line.replace(/^[•\-*▪▸►⦁◦‣·]\s*/, '').trim();
+        const colonIdx = stripped.indexOf(':');
+        // Category header: "Technical:" (alone) or "API Testing: Postman, Jira"
+        // Allow up to 60 chars for long QA headers like "Accessibility Testing (Automated & Manual)".
+        if (colonIdx > 0 && colonIdx < 60 && !/https?:|www\./i.test(stripped)) {
+          const category = stripped.slice(0, colonIdx).trim();
+          const after = stripped.slice(colonIdx + 1).trim();
+          if (!category) continue;
+          if (!groups.has(category)) groups.set(category, []);
+          if (after) {
+            const skills = after.split(/[,;|•]+/).map(cleanSkill).filter(Boolean);
+            groups.get(category).push(...skills);
+          }
+          // Subsequent bare lines belong to this header until the next header.
+          currentCategory = category;
+          continue;
+        }
+        // Bare skill(s) — may be comma-separated on one line
+        const parts = stripped.split(/[,;|•]+/).map(cleanSkill).filter(Boolean);
+        for (const p of parts) {
+          if (currentCategory) {
+            if (!groups.has(currentCategory)) groups.set(currentCategory, []);
+            groups.get(currentCategory).push(p);
+          } else {
+            bare.push(p);
+          }
+        }
       }
-      const grouped = groupSkills(flat);
-      if (grouped.length > 0) {
-        report.skillsGrouped += grouped.reduce((n, g) => n + g.skills.length, 0);
-        content = grouped.flatMap((g) => [`${g.name}:`, ...g.skills.map((s) => `• ${s}`)]);
+      // Group bare skills that had no explicit category into buckets
+      if (bare.length > 0) {
+        const grouped = groupSkills(bare);
+        for (const g of grouped) {
+          if (!groups.has(g.name)) groups.set(g.name, []);
+          groups.get(g.name).push(...g.skills);
+        }
+      }
+      if (groups.size > 0) {
+        const totalSkills = [...groups.values()].reduce((n, arr) => n + arr.length, 0);
+        report.skillsGrouped += totalSkills;
+        // One line per category: "Category: skill1, skill2, ..." — this is exactly
+        // what the import manager's skills branch expects (category before colon,
+        // comma-separated skills after) and what the technical template renders as
+        // "Category: a | b | c" on one row. Deduplicate case-insensitively per category.
+        content = [];
+        for (const [category, skills] of groups.entries()) {
+          const seen = new Set();
+          const deduped = [];
+          for (const s of skills) {
+            const k = s.toLowerCase();
+            if (!seen.has(k)) { seen.add(k); deduped.push(s); }
+          }
+          // Merge fragmented lines like "User" + "Acceptance Testing (UAT)"
+          // that were split by PDF column width. Single short word followed by
+          // a longer capitalized phrase is likely a broken line.
+          const merged = [];
+          for (let i = 0; i < deduped.length; i++) {
+            const cur = deduped[i];
+            const next = deduped[i + 1];
+            if (cur && next && cur.split(/\s+/).length === 1 && cur.length <= 6 && cur.length >= 2
+              && next.length > 6 && /^[A-Z]/.test(next) && !next.includes(':') && !cur.includes(':')
+              && !/^(Git|Jira|Java|SQL|HTML|CSS|AWS|GitHub|Linux|Docker|React|Node|Python)$/i.test(cur)) {
+              merged.push(`${cur} ${next}`);
+              i++;
+            } else {
+              merged.push(cur);
+            }
+          }
+          // Drop empty categories (e.g. "Soft Skills:" with no following skills)
+          // — they appear as stray headers in the preview.
+          if (merged.length > 0) content.push(`${category}: ${merged.join(', ')}`);
+        }
       }
     }
     let entries = null;
