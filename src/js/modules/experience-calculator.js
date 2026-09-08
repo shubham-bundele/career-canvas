@@ -2,16 +2,84 @@ import { escapeHtml } from '../utils/sanitize.js';
 import { generateId } from '../utils/id.js';
 import { jobTitles, companies } from '../data/autocomplete-data.js';
 
+/** Section types whose items carry employment dates (pure, Node-safe). */
+export const EXPERIENCE_SECTION_TYPES = new Set([
+  'professionalExperience', 'otherExperience', 'internships', 'apprenticeships',
+  'researchExperience', 'teachingExperience', 'volunteerExperience',
+  'leadershipExperience', 'militaryExperience', 'experience', 'workExperience',
+]);
+
+const MONTH_NAME_TO_NUM = {
+  january: 1, february: 2, march: 3, april: 4, may: 5, june: 6,
+  july: 7, august: 8, september: 9, october: 10, november: 11, december: 12,
+  jan: 1, feb: 2, mar: 3, apr: 4, jun: 6, jul: 7, aug: 8,
+  sep: 9, sept: 9, oct: 10, nov: 11, dec: 12,
+};
+
+/**
+ * Normalize a resume month value ('March', 'Mar', '3', '03', 3) to '1'-'12' or ''.
+ * Pure (unit-tested).
+ */
+export function normalizeMonth(value) {
+  if (value === undefined || value === null) return '';
+  const s = String(value).trim().toLowerCase().replace(/\.$/, '');
+  if (s === '') return '';
+  if (/^(0?[1-9]|1[0-2])$/.test(s)) return String(parseInt(s, 10));
+  if (MONTH_NAME_TO_NUM[s] !== undefined) return String(MONTH_NAME_TO_NUM[s]);
+  return '';
+}
+
+/** Normalize a year value to a 4-digit string or ''. Pure. */
+export function normalizeYear(value) {
+  const s = String(value ?? '').trim();
+  return /^\d{4}$/.test(s) ? s : '';
+}
+
+/**
+ * Extract dated experience entries from a resume document.
+ * Returns exp-calc-shaped rows (new ids). Skips items with no usable dates.
+ * Pure (unit-tested).
+ */
+export function extractExperienceEntries(doc) {
+  const rows = [];
+  for (const sec of doc?.sections || []) {
+    if (!sec || typeof sec !== 'object') continue;
+    const t = sec.sectionType || sec.type;
+    if (!EXPERIENCE_SECTION_TYPES.has(t)) continue;
+    for (const item of sec.items || []) {
+      if (!item || typeof item !== 'object') continue;
+      const startYear = normalizeYear(item.startYear);
+      const endYear = normalizeYear(item.endYear);
+      const currentlyWorking = !!item.currentlyWorking;
+      if (!startYear) continue; // duration math needs a start year
+      if (!currentlyWorking && !endYear) continue;
+      const title = [item.jobTitle, item.company].filter((s) => String(s || '').trim()).join(' — ');
+      rows.push({
+        id: generateId(),
+        title,
+        startMonth: normalizeMonth(item.startMonth),
+        startYear,
+        endMonth: currentlyWorking ? '' : normalizeMonth(item.endMonth),
+        endYear: currentlyWorking ? '' : endYear,
+        currentlyWorking,
+      });
+    }
+  }
+  return rows;
+}
+
 export class ExperienceCalculator {
   constructor() {
     this.entries = [];
     this.displayMode = 'years';
     this.overlay = null;
     this.onClose = null;
+    this.sourceDoc = null;
   }
 
-  show(parentEl = document.body) {
+  show(parentEl = document.body, sourceDoc = null) {
     if (this.overlay) this.close();
+    this.sourceDoc = sourceDoc || null;
 
     this.overlay = document.createElement('div');
     this.overlay.className = 'exp-calc-overlay';
@@ -48,6 +116,15 @@ export class ExperienceCalculator {
     desc.textContent = 'Add your work experiences below to calculate your total professional experience.';
     popup.appendChild(desc);
 
+    if (sourceDoc) {
+      const prefillBtn = document.createElement('button');
+      prefillBtn.className = 'btn btn-ghost btn-sm exp-calc-prefill';
+      prefillBtn.textContent = '⤓ Fill from current resume';
+      prefillBtn.setAttribute('aria-label', 'Fill entries from the open resume');
+      prefillBtn.addEventListener('click', () => this.prefillFromDocument(sourceDoc));
+      popup.appendChild(prefillBtn);
+    }
+
     const body = document.createElement('div');
     body.className = 'exp-calc-body';
     body.id = 'exp-calc-body';
@@ -81,15 +158,20 @@ export class ExperienceCalculator {
     document.body.style.overflow = 'hidden';
 
     if (this.entries.length === 0) {
-      this.entries.push({
-        id: generateId(),
-        title: '',
-        startMonth: '',
-        startYear: '',
-        endMonth: '',
-        endYear: '',
-        currentlyWorking: false
-      });
+      const prefilled = sourceDoc ? extractExperienceEntries(sourceDoc) : [];
+      if (prefilled.length > 0) {
+        this.entries = prefilled;
+      } else {
+        this.entries.push({
+          id: generateId(),
+          title: '',
+          startMonth: '',
+          startYear: '',
+          endMonth: '',
+          endYear: '',
+          currentlyWorking: false
+        });
+      }
     }
 
     this.renderEntries();
@@ -106,11 +188,49 @@ export class ExperienceCalculator {
     }, 100);
   }
 
+  /**
+   * Merge resume entries into the current list (skips exact duplicates).
+   * @returns {number} entries added
+   */
+  prefillFromDocument(doc) {
+    const rows = extractExperienceEntries(doc);
+    if (rows.length === 0) {
+      if (typeof window !== 'undefined' && window.CC?.toast) {
+        window.CC.toast.show('No dated experience found in this resume', 'info');
+      }
+      return 0;
+    }
+    const key = (e) => [e.title, e.startMonth, e.startYear, e.endMonth, e.endYear, !!e.currentlyWorking].join('|');
+    const seen = new Set(this.entries.map(key));
+    // Drop the single placeholder blank row when real data arrives
+    if (this.entries.length === 1) {
+      const only = this.entries[0];
+      if (!only.title && !only.startYear && !only.endYear) this.entries = [];
+    }
+    let added = 0;
+    for (const r of rows) {
+      if (seen.has(key(r))) continue;
+      seen.add(key(r));
+      this.entries.push(r);
+      added++;
+    }
+    this.renderEntries();
+    this.renderResult();
+    if (typeof window !== 'undefined' && window.CC?.toast) {
+      window.CC.toast.show(
+        added > 0 ? `Added ${added} entr${added === 1 ? 'y' : 'ies'} from resume` : 'Resume entries already listed',
+        added > 0 ? 'success' : 'info'
+      );
+    }
+    return added;
+  }
+
   close() {
     if (this.overlay) {
       this.overlay.remove();
       this.overlay = null;
     }
+    this.sourceDoc = null;
     document.body.style.overflow = '';
     if (this._keyHandler) {
       document.removeEventListener('keydown', this._keyHandler);

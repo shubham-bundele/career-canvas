@@ -372,3 +372,30 @@ summary:hover {
 details[open] summary {
   margin-bottom: var(--space-2);
 }
+
+/* Global keyboard-focus safety net (components may refine it) */
+:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm, 4px);
+}
+
+/* Skip-to-content link: visible only on keyboard focus */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 1000000;
+  background: var(--color-primary);
+  color: #fff;
+  padding: var(--space-2) var(--space-4);
+  border-radius: 0 0 var(--radius-md, 8px) 0;
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+}
+
+.skip-link:focus-visible {
+  left: 0;
+  outline-color: #fff;
+  color: #fff;
+}

@@ -17,7 +17,8 @@ export const EXPORT_FORMATS = {
   PLAIN_TEXT: 'txt',
   JSON: 'json',
   MARKDOWN: 'md',
-  HTML: 'html'
+  HTML: 'html',
+  DOCX: 'docx'
 };
 
 /**
@@ -345,11 +346,12 @@ export class ExportManager {
   }
 
   /**
-   * Validates document before export
+   * Validates document before export. Pass templateFacts
+   * ({ columnCount, atsMode, hasPhoto }) for the ATS rule set.
    * @param {Object} document - Document data
    * @returns {Object} Validation result
    */
-  validateExport(document) {
+  validateExport(document, templateFacts = {}) {
     const warnings = [];
     const errors = [];
 
@@ -378,8 +380,54 @@ export class ExportManager {
     return {
       valid: errors.length === 0,
       errors,
-      warnings
+      warnings,
+      templateFacts,
     };
+  }
+
+  /**
+   * Full validation incl. ATS audit (async — loads the audit module).
+   * Returns { valid, errors[], warnings[] } with ATS findings appended
+   * as "ATS: ..." warnings/errors.
+   */
+  async validateExportFull(document, templateFacts = {}) {
+    const base = this.validateExport(document, templateFacts);
+    try {
+      const { auditForExport } = await import('../utils/ats-audit.js');
+      for (const f of auditForExport(document, templateFacts)) {
+        const msg = `ATS: ${f.message}`;
+        if (f.level === 'error') { base.errors.push(msg); }
+        else base.warnings.push(msg);
+      }
+    } catch (err) {
+      console.warn('ATS audit unavailable:', err);
+    }
+    base.valid = base.errors.length === 0;
+    return base;
+  }
+
+  /**
+   * Export a real .docx file (dependency-free OOXML, ATS-safe layout).
+   */
+  async exportDocx(document) {
+    const { buildDocx } = await import('../utils/docx-export.js');
+    const bytes = buildDocx(document);
+    const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+    const filename = this.generateFilename(document, 'docx');
+    this.downloadFile(blob, filename, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    return { filename, bytes: bytes.length };
+  }
+
+  /**
+   * Self-test: generate the .docx in memory and verify every key field
+   * survived into document.xml. Returns { ok, missing[], bytes }.
+   */
+  async verifyDocxExport(document) {
+    const { buildDocx, buildDocumentXml } = await import('../utils/docx-export.js');
+    const { verifyDocxContent } = await import('../utils/ats-audit.js');
+    const bytes = buildDocx(document);
+    const check = verifyDocxContent(document, buildDocumentXml(document));
+    return { ok: check.ok, missing: check.missing, bytes: bytes.length };
   }
 
   /**

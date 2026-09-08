@@ -1205,6 +1205,8 @@ button.app-nav-dropdown-item {
 .text-success { color: var(--color-success); }
 .text-warning { color: var(--color-warning); }
 .text-error { color: var(--color-error); }
+.text-danger { color: var(--color-danger, var(--color-error)); }
+.text-info { color: var(--color-info); }
 
 /* ===== Background Utilities ===== */
 .bg-primary { background-color: var(--bg-primary); }

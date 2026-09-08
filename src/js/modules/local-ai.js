@@ -23,6 +23,63 @@ const MODELS = {
   'feature-extraction': 'Xenova/all-MiniLM-L6-v2'
 };
 
+// Simple LRU in-memory session cache (per requirement)
+const _lru = new Map();
+const LRU_MAX = 50;
+function lruGet(key) {
+  if (!_lru.has(key)) return null;
+  const v = _lru.get(key);
+  _lru.delete(key);
+  _lru.set(key, v);
+  return v;
+}
+function lruSet(key, value) {
+  if (_lru.has(key)) _lru.delete(key);
+  _lru.set(key, value);
+  if (_lru.size > LRU_MAX) _lru.delete(_lru.keys().next().value);
+}
+
+// IndexedDB embedding cache (per requirement)
+const EMB_DB = 'cc-local-ai';
+const EMB_STORE = 'embeddings';
+function idbOpen() {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') return reject(new Error('no-idb'));
+    const r = indexedDB.open(EMB_DB, 1);
+    r.onupgradeneeded = () => r.result.createObjectStore(EMB_STORE);
+    r.onsuccess = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+  });
+}
+async function idbGet(key) {
+  try {
+    const db = await idbOpen();
+    return await new Promise((res) => {
+      const tx = db.transaction(EMB_STORE, 'readonly');
+      const q = tx.objectStore(EMB_STORE).get(key);
+      q.onsuccess = () => res(q.result || null);
+      q.onerror = () => res(null);
+    });
+  } catch { return null; }
+}
+async function idbSet(key, value) {
+  try {
+    const db = await idbOpen();
+    await new Promise((res) => {
+      const tx = db.transaction(EMB_STORE, 'readwrite');
+      tx.objectStore(EMB_STORE).put(Array.from(value), key);
+      tx.oncomplete = () => res();
+      tx.onerror = () => res();
+    });
+  } catch { /* ignore */ }
+}
+
+function hashKey(s) {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+  return 'emb_' + h.toString(36);
+}
+
 export class LocalAI {
   static isEnabled() {
     return localStorage.getItem('cc_local_ai_enabled') === 'true';
@@ -84,6 +141,17 @@ export class LocalAI {
     return ['summary', 'condense', 'tone', 'semantic-match'].includes(mode);
   }
 
+  static preprocess(text, maxChars = 4000) {
+    if (!text) return '';
+    return String(text).replace(/\s+/g, ' ').trim().slice(0, maxChars);
+  }
+
+  static postprocess(text, maxLen = 2000) {
+    if (!text) return '';
+    let t = String(text).trim().replace(/\s+/g, ' ');
+    return t.length > maxLen ? t.slice(0, maxLen) : t;
+  }
+
   /**
    * Main entrypoint for processing text offline
    */
@@ -97,32 +165,89 @@ export class LocalAI {
     }
 
     if (mode === 'summary') {
-      const summarizer = await this.getPipeline('summarization');
-      const out = await summarizer(resumeText, {
-        max_length: 60,
-        min_length: 30,
-      });
-      return out[0].summary_text;
+      const key = 'sum:' + resumeText.slice(0, 200);
+      const hit = lruGet(key);
+      if (hit) return hit;
+      const result = await this.summarizeLong(resumeText, { max_length: 60, min_length: 30 }, 2000);
+      lruSet(key, result);
+      return result;
     }
 
     if (mode === 'condense') {
-      const summarizer = await this.getPipeline('summarization');
-      const out = await summarizer(resumeText, {
-        max_length: 25,
-        min_length: 10,
-      });
-      return out[0].summary_text;
+      const key = 'con:' + resumeText.slice(0, 200);
+      const hit = lruGet(key);
+      if (hit) return hit;
+      const result = await this.summarizeLong(resumeText, { max_length: 25, min_length: 10 }, 500);
+      lruSet(key, result);
+      return result;
     }
 
     if (mode === 'tone') {
       const classifier = await this.getPipeline('text-classification');
-      const out = await classifier(resumeText);
+      const out = await classifier(this.preprocess(resumeText));
       // It returns [{ label: "POSITIVE", score: 0.99 }]
       // Just return a message indicating the sentiment.
       return `The sentiment of this text is ${out[0].label} (Confidence: ${Math.round(out[0].score * 100)}%).`;
     }
 
+    if (mode === 'semantic-match') {
+      if (!context || !String(context).trim()) {
+        throw new Error("semantic-match needs a job description in 'context'.");
+      }
+      const [resumeVec, jdVec] = await Promise.all([
+        this.getEmbeddings(resumeText),
+        this.getEmbeddings(context),
+      ]);
+      const score = Math.round(this.cosineSimilarity(resumeVec, jdVec) * 100);
+      const verdict = score >= 75 ? 'Strong match' : score >= 50 ? 'Moderate match' : 'Weak match';
+      return `${verdict}: semantic similarity ${score}% (offline embeddings).`;
+    }
+
     throw new Error('Local AI failed to process the request.');
+  }
+
+  /**
+   * Split text into word-boundary chunks (pure, unit-tested).
+   * @returns {string[]}
+   */
+  static chunkText(text, maxChars = 1500) {
+    const clean = this.preprocess(text, 60000);
+    if (clean.length <= maxChars) return clean ? [clean] : [];
+    const words = clean.split(' ');
+    const chunks = [];
+    let cur = '';
+    for (const w of words) {
+      if ((cur + ' ' + w).trim().length > maxChars && cur) {
+        chunks.push(cur.trim());
+        cur = w;
+      } else {
+        cur = (cur + ' ' + w).trim();
+      }
+    }
+    if (cur.trim()) chunks.push(cur.trim());
+    return chunks;
+  }
+
+  /**
+   * Map-reduce summarize: summarize each chunk, then summarize the
+   * combination when there are several. Nothing is silently dropped.
+   */
+  static async summarizeLong(text, opts, outMax) {
+    const summarizer = await this.getPipeline('summarization');
+    const chunks = this.chunkText(text);
+    if (chunks.length <= 1) {
+      const out = await summarizer(chunks[0] || '', opts);
+      return this.postprocess(out[0].summary_text, outMax);
+    }
+    const parts = [];
+    for (const c of chunks) {
+      const out = await summarizer(c, opts);
+      parts.push(out[0].summary_text);
+    }
+    const combined = parts.join(' ');
+    if (combined.length <= 1500) return this.postprocess(combined, outMax);
+    const out = await summarizer(this.preprocess(combined, 4000), opts);
+    return this.postprocess(out[0].summary_text, outMax);
   }
 
   /**
@@ -131,9 +256,21 @@ export class LocalAI {
    */
   static async getEmbeddings(text) {
     if (!this.isEnabled()) return null;
+    const clean = this.preprocess(text, 2000);
+    const key = hashKey(clean);
+    const mem = lruGet(key);
+    if (mem) return mem;
+    const cached = await idbGet(key);
+    if (cached) {
+      const arr = Float32Array.from(cached);
+      lruSet(key, arr);
+      return arr;
+    }
     const extractor = await this.getPipeline('feature-extraction');
     // We use pooling:'mean' and normalize:true to get dense normalized vectors
-    const out = await extractor(text, { pooling: 'mean', normalize: true });
+    const out = await extractor(clean, { pooling: 'mean', normalize: true });
+    lruSet(key, out.data);
+    await idbSet(key, out.data);
     return out.data; // Float32Array
   }
 

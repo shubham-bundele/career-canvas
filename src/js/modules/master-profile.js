@@ -104,6 +104,15 @@ export class MasterProfile {
     this.listeners.push({ element: importBtn, event: 'click', handler: importHandler });
     actions.appendChild(importBtn);
 
+    const kitBtn = createElement('button', '📋 Application Kit', {
+      class: 'master-profile-btn master-profile-btn-secondary'
+    });
+    kitBtn.title = 'Copy a plain-text kit (contact, headline, skills, history) for pasting into job portals';
+    const kitHandler = () => this.copyApplicationKit();
+    kitBtn.addEventListener('click', kitHandler);
+    this.listeners.push({ element: kitBtn, event: 'click', handler: kitHandler });
+    actions.appendChild(kitBtn);
+
     const linkedInBtn = createElement('button', '\u{1F4E5} Import from LinkedIn', {
       class: 'master-profile-btn master-profile-btn-secondary'
     });
@@ -1028,6 +1037,78 @@ export class MasterProfile {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  }
+
+  /**
+   * Builds a plain-text application kit (contact, headline, skills, history)
+   * for pasting into job portals.
+   */
+  buildApplicationKitText() {
+    const d = this.data || {};
+    const L = [];
+    const links = (d.links || []).filter((l) => l.included !== false);
+    const emp = (d.employment || []).filter((e) => e.included !== false);
+    const first = emp[0] || {};
+    if (first.jobTitle || first.company) L.push(`${first.jobTitle || ''}${first.jobTitle && first.company ? ' @ ' : ''}${first.company || ''}`);
+    const contactBits = [
+      links.find((l) => /mail|email/i.test(l.label || ''))?.url,
+      links.find((l) => /tel|phone/i.test(l.label || ''))?.url,
+      links.find((l) => /linkedin/i.test(l.label || l.url || ''))?.url,
+      links.find((l) => /github/i.test(l.label || l.url || ''))?.url,
+    ].filter(Boolean);
+    if (contactBits.length) L.push(contactBits.join(' | '));
+    if (L.length) L.push('');
+    const skills = (d.skills || [])
+      .filter((s) => s.included !== false)
+      .flatMap((s) => (Array.isArray(s.skills) ? s.skills : [s.skills]).filter(Boolean));
+    if (skills.length) { L.push('SKILLS', [...new Set(skills)].join(', '), ''); }
+    if (emp.length) {
+      L.push('EXPERIENCE');
+      for (const e of emp) {
+        const dates = [e.startMonth, e.startYear, e.currentlyWorking ? 'Present' : [e.endMonth, e.endYear].filter(Boolean).join(' ')].filter(Boolean).join(' ').trim();
+        L.push(`- ${e.jobTitle || ''}${e.company ? `, ${e.company}` : ''}${dates ? ` (${dates})` : ''}`);
+        for (const a of e.achievements || []) {
+          const t = typeof a === 'string' ? a : a?.text || '';
+          if (t.trim()) L.push(`  • ${t.trim()}`);
+        }
+      }
+      L.push('');
+    }
+    const edu = (d.education || []).filter((e) => e.included !== false);
+    if (edu.length) {
+      L.push('EDUCATION');
+      for (const e of edu) L.push(`- ${[e.degree || e.qualification, e.institution].filter(Boolean).join(', ')}`);
+      L.push('');
+    }
+    return L.join('\n').trim();
+  }
+
+  /** Copy the application kit to the clipboard (download fallback). */
+  copyApplicationKit() {
+    const text = this.buildApplicationKitText();
+    if (!text) {
+      if (window.CC?.toast) window.CC.toast.show('Master profile is empty — add items first', 'warning');
+      return;
+    }
+    const done = () => window.CC?.toast?.show('Application kit copied — paste it into any job portal', 'success');
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(() => this._downloadKit(text));
+    } else {
+      this._downloadKit(text);
+    }
+  }
+
+  _downloadKit(text) {
+    const blob = new Blob([text], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'application-kit.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    if (window.CC?.toast) window.CC.toast.show('Application kit downloaded', 'success');
   }
 
   /**

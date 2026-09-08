@@ -787,8 +787,21 @@ export class PrivacyStudio {
     // Save to IndexedDB
     try {
       await this.db.put('documents', redactedDoc);
+      // Verify: re-scan the redacted copy for anything the redaction missed
+      // (e.g. the same value appearing in a field that was never flagged).
+      let remaining = [];
+      try {
+        remaining = this.performScan(redactedDoc) || [];
+      } catch { remaining = []; }
       if (window.CC?.toast) {
-        window.CC.toast.success(`Redacted copy "${redactedDoc.name}" created successfully. The original document was not modified.`);
+        if (remaining.length > 0) {
+          window.CC.toast.warning(
+            `Redacted copy saved, but ${remaining.length} sensitive item${remaining.length === 1 ? '' : 's'} may remain — open the redacted copy in Privacy Studio to review.`,
+            8000
+          );
+        } else {
+          window.CC.toast.success(`Redacted copy "${redactedDoc.name}" created and verified clean. The original was not modified.`);
+        }
       }
     } catch (err) {
       console.error('Privacy Studio: failed to save redacted document', err);

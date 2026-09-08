@@ -62,6 +62,13 @@
   --color-error-bg: #fee2e2;
   --color-error-border: #fca5a5;
 
+  /* Danger alias — same scale as error (used by editor/import styles) */
+  --color-danger: var(--color-error);
+  --color-danger-light: var(--color-error-light);
+  --color-danger-dark: var(--color-error-dark);
+  --color-danger-bg: var(--color-error-bg);
+  --color-danger-border: var(--color-error-border);
+
   --color-info: #0284c7;
   --color-info-light: #06b6d4;
   --color-info-dark: #0369a1;
@@ -90,11 +97,11 @@
   --bg-active: #e2e8f0;
   --bg-disabled: #f1f5f9;
 
-  /* Text Colors */
+  /* Text Colors (light theme: muted meets WCAG AA on white) */
   --text-primary: #0f172a;
   --text-secondary: #475569;
   --text-tertiary: #94a3b8;
-  --text-muted: #94a3b8;
+  --text-muted: #64748b;
   --text-disabled: #cbd5e1;
   --text-inverse: #ffffff;
   --text-link: var(--color-primary);

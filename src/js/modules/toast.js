@@ -39,6 +39,8 @@ const TOAST_ICONS = {
  * Maximum visible toasts
  */
 const MAX_VISIBLE_TOASTS = 5;
+/* Small screens show fewer stacked toasts so content stays usable */
+const MAX_VISIBLE_TOASTS_MOBILE = 2;
 
 /**
  * Toast notification class (Singleton)
@@ -83,7 +85,7 @@ export class Toast {
     };
 
     // Add to queue if too many visible toasts
-    if (this.toasts.length >= MAX_VISIBLE_TOASTS) {
+    if (this.toasts.length >= this.maxVisible()) {
       this.queue.push(toastData);
       return toastId;
     }
@@ -316,10 +318,21 @@ export class Toast {
   }
 
   /**
+   * Max simultaneously visible toasts — fewer on small screens.
+   * Queued toasts are never lost; they show as others dismiss.
+   */
+  maxVisible() {
+    try {
+      if (typeof window !== 'undefined' && window.innerWidth <= 767) return MAX_VISIBLE_TOASTS_MOBILE;
+    } catch { /* ignore */ }
+    return MAX_VISIBLE_TOASTS;
+  }
+
+  /**
    * Shows next queued toast if available
    */
   showNextQueued() {
-    if (this.queue.length > 0 && this.toasts.length < MAX_VISIBLE_TOASTS) {
+    if (this.queue.length > 0 && this.toasts.length < this.maxVisible()) {
       const nextToast = this.queue.shift();
       this.displayToast(nextToast);
     }

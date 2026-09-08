@@ -5,6 +5,7 @@
 
 import { createElement } from '../utils/sanitize.js';
 import { SECTION_TYPES } from '../core/schema.js';
+import { ACTION_VERBS } from '../data/action-verbs.js';
 
 /**
  * Check status types
@@ -15,18 +16,6 @@ const CHECK_STATUS = {
   FAIL: 'fail',
   INFO: 'info'
 };
-
-/**
- * Common action verbs for resume bullets
- */
-const ACTION_VERBS = [
-  'achieved', 'administered', 'analyzed', 'authored', 'built', 'completed', 'conducted',
-  'created', 'delivered', 'demonstrated', 'designed', 'developed', 'directed', 'drove',
-  'enhanced', 'established', 'executed', 'expanded', 'generated', 'grew', 'implemented',
-  'improved', 'increased', 'initiated', 'launched', 'led', 'managed', 'optimized',
-  'organized', 'oversaw', 'performed', 'planned', 'produced', 'reduced', 'resolved',
-  'spearheaded', 'streamlined', 'strengthened', 'structured', 'supervised', 'transformed'
-];
 
 /**
  * Standard section headings recognized by ATS

@@ -57,11 +57,14 @@ class CareerCanvasApp {
       // Initialize auth (non-blocking — app works as guest if not configured)
       initializeAuth().catch(e => console.warn('Auth init:', e.message));
 
-      // Check if user has been here before (guest or authenticated)
-      const hasVisited = localStorage.getItem('onboardingComplete') || localStorage.getItem('cc_auth_guest') || authState.isAuthenticated();
+      // First visit must land on signup — auth is required.
+      // Note: clearing "Cache" in Chrome does NOT clear localStorage;
+      // use "Clear site data" or Application > Storage > Clear.
+      const hasAuth = localStorage.getItem('cc_auth_guest') === 'true' || authState.isAuthenticated();
 
-      if (!hasVisited) {
-        // First visit — always show welcome/login page
+      if (!hasAuth) {
+        // No session — first visit lands on the welcome page
+        // (guard also enforces this for deep links)
         this.router.start();
         this.router.navigate('/welcome');
       } else {
@@ -115,6 +118,12 @@ class CareerCanvasApp {
 
   renderShell() {
     this.appEl.innerHTML = '';
+
+    const skipLink = document.createElement('a');
+    skipLink.href = '#app-main';
+    skipLink.className = 'skip-link';
+    skipLink.textContent = 'Skip to main content';
+    this.appEl.appendChild(skipLink);
 
     const header = document.createElement('header');
     header.className = 'app-header';
@@ -277,6 +286,7 @@ class CareerCanvasApp {
     main.className = 'app-main';
     main.id = 'app-main';
     main.setAttribute('role', 'main');
+    main.tabIndex = -1;
 
     const toastContainer = document.createElement('div');
     toastContainer.id = 'toast-container';
@@ -598,15 +608,10 @@ class CareerCanvasApp {
         return confirm('You have unsaved changes. Are you sure you want to leave?');
       }
 
-      // Auth gate: block app routes until user chooses guest or signs in
+      // Auth gate: every app route requires an auth session or explicit guest.
+      // "onboardingComplete" alone no longer grants access — first visit must see signup.
       const publicRoutes = ['/welcome', '/login', '/signup', '/verify-email', '/forgot-password', '/reset-password', '/auth/callback', '/import', '/privacy', '/terms', '/features', '/about', '/faq', '/roadmap', '/contact', '/accessibility', '/changelog'];
-      const hasAccess = localStorage.getItem('cc_auth_guest') === 'true' || localStorage.getItem('onboardingComplete') || authState.isAuthenticated();
-
-      // If user is actively using the app (has documents or is on an editor route), grant access
-      if (!hasAccess && toPath.startsWith('/editor/')) {
-        localStorage.setItem('cc_auth_guest', 'true');
-        return true;
-      }
+      const hasAccess = localStorage.getItem('cc_auth_guest') === 'true' || authState.isAuthenticated();
 
       if (!hasAccess && !publicRoutes.includes(toPath)) {
         this.router.navigate('/welcome');
@@ -962,7 +967,8 @@ class CareerCanvasApp {
           this.experienceCalculator.close();
         }
         this.experienceCalculator = new ExperienceCalculator();
-        this.experienceCalculator.show();
+        const doc = this.currentView instanceof ResumeEditor ? this.currentView.document : null;
+        this.experienceCalculator.show(undefined, doc);
       });
     }
   }
@@ -998,6 +1004,32 @@ class CareerCanvasApp {
         btn.focus();
       }
     });
+  }
+
+  /**
+   * Post-auth entry point: new users (no documents, wizard not done) get the
+   * setup wizard first, everyone else goes to the intended page / dashboard.
+   * This is the welcome → wizard → dashboard chain.
+   */
+  async enterAfterAuth(intended) {
+    let hasDocuments = false;
+    try {
+      const docs = await this.db.getAll('documents');
+      hasDocuments = docs && docs.length > 0;
+    } catch (e) { /* ignore */ }
+
+    if (hasDocuments) {
+      localStorage.setItem('onboardingComplete', 'true');
+      this.router.navigate(intended || '/dashboard');
+      return;
+    }
+    if (!localStorage.getItem('onboardingComplete')) {
+      // Dashboard underneath, setup wizard overlays on top.
+      this.router.navigate('/dashboard');
+      this.showOnboarding();
+      return;
+    }
+    this.router.navigate(intended || '/dashboard');
   }
 
   showOnboarding() {

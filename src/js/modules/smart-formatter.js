@@ -3,21 +3,9 @@
  * Rule-based document formatting analyzer and fixer.
  * 100% local, no AI API needed.
  */
+import { WEAK_STARTS, ACTION_VERBS as STRONG_VERBS } from '../data/action-verbs.js';
 
 const SEVERITY = { ERROR: 'error', WARNING: 'warning', INFO: 'info' };
-
-const WEAK_STARTS = [
-  'responsible for','helped with','assisted in','worked on','was involved',
-  'participated in','duties included','tasked with','in charge of','handled'
-];
-
-const STRONG_VERBS = [
-  'achieved','architected','automated','built','championed','created','decreased',
-  'delivered','designed','developed','directed','drove','engineered','established',
-  'executed','expanded','generated','grew','implemented','improved','increased',
-  'initiated','launched','led','managed','mentored','migrated','optimized',
-  'orchestrated','pioneered','reduced','scaled','spearheaded','streamlined','transformed'
-];
 
 export class SmartFormatter {
 

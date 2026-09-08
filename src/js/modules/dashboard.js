@@ -65,7 +65,7 @@ export class Dashboard {
     dropOverlayContent.appendChild(dropIcon);
     const dropTitle = createElement('p', 'Drop files to import', { style: 'font-size:18px;font-weight:600;margin:8px 0 4px;color:var(--text-primary, #1a1a2e);' });
     dropOverlayContent.appendChild(dropTitle);
-    const dropHint = createElement('p', 'Supports .json, .pdf, .docx, .txt, .md, .html files', { style: 'font-size:13px;color:var(--text-secondary, #64748b);' });
+    const dropHint = createElement('p', 'Supports .json, .pdf, .docx, .txt, .md, .html and images — drop several files for batch import', { style: 'font-size:13px;color:var(--text-secondary, #64748b);' });
     dropOverlayContent.appendChild(dropHint);
     this.dropOverlay.appendChild(dropOverlayContent);
     this.container.appendChild(this.dropOverlay);
@@ -478,6 +478,8 @@ export class Dashboard {
 
     grid.innerHTML = '';
 
+    this.renderDuplicateBanner();
+
     if (this.filteredDocuments.length === 0) {
       const emptyState = this.renderEmptyState();
       grid.appendChild(emptyState);
@@ -489,6 +491,55 @@ export class Dashboard {
       card.style.setProperty('--card-index', index);
       grid.appendChild(card);
     });
+  }
+
+  /** Normalized identity key for duplicate grouping (name + owner email). */
+  static duplicateKey(doc) {
+    const name = String(doc?.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const email = String(doc?.personalInfo?.email || '').toLowerCase().trim();
+    return `${name}|${email}`;
+  }
+
+  /** Group documents with identical identity keys (pure, unit-tested). */
+  static groupDuplicates(docs) {
+    const map = new Map();
+    for (const d of (docs || []).filter((x) => x && !x.archived)) {
+      const k = Dashboard.duplicateKey(d);
+      if (!map.has(k)) map.set(k, []);
+      map.get(k).push(d);
+    }
+    return [...map.values()].filter((g) => g.length > 1);
+  }
+
+  findDuplicateGroups() {
+    return Dashboard.groupDuplicates(this.documents);
+  }
+
+  /** Banner above the grid when likely duplicates exist (unfiltered view only). */
+  renderDuplicateBanner() {
+    const prev = this.container.querySelector('.dashboard-duplicates');
+    if (prev) prev.remove();
+    if ((this.currentFilter && this.currentFilter !== 'all') || this.searchQuery) return;
+    const groups = this.findDuplicateGroups();
+    if (!groups.length) return;
+    const grid = this.container.querySelector('#dashboard-grid');
+    if (!grid) return;
+    const banner = createElement('div', '', { class: 'dashboard-duplicates', role: 'status' });
+    const total = groups.reduce((n, g) => n + g.length, 0);
+    const title = createElement('strong', `Possible duplicates: ${total} documents in ${groups.length} group${groups.length === 1 ? '' : 's'}`, {});
+    banner.appendChild(title);
+    groups.slice(0, 3).forEach((g) => {
+      const row = createElement('div', '', { class: 'dashboard-duplicates-group' });
+      g.forEach((d) => {
+        const btn = createElement('button', d.name || 'Untitled', { class: 'btn btn-sm btn-ghost', type: 'button' });
+        const h = () => this.openDocument(d.id);
+        btn.addEventListener('click', h);
+        this.listeners.push({ element: btn, event: 'click', handler: h });
+        row.appendChild(btn);
+      });
+      banner.appendChild(row);
+    });
+    grid.parentNode.insertBefore(banner, grid);
   }
 
   /**
@@ -652,6 +703,17 @@ export class Dashboard {
       button.addEventListener('click', clickHandler);
       this.listeners.push({ element: button, event: 'click', handler: clickHandler });
       emptyState.appendChild(button);
+
+      const importBtn = createElement('button', 'Import Existing', {
+        class: 'dashboard-btn-secondary'
+      });
+      const importHandler = () => {
+        if (this.events && typeof this.events.emit === 'function') this.events.emit('dashboard:import');
+        else if (window.CC?.router) window.CC.router.navigate('/import');
+      };
+      importBtn.addEventListener('click', importHandler);
+      this.listeners.push({ element: importBtn, event: 'click', handler: importHandler });
+      emptyState.appendChild(importBtn);
     }
 
     return emptyState;
@@ -993,79 +1055,16 @@ export class Dashboard {
       return;
     }
 
-    const files = Array.from(fileList);
-    const supportedExtensions = ['.json', '.pdf', '.docx', '.txt', '.md', '.html'];
-    const validFiles = files.filter(f => {
-      const ext = '.' + f.name.split('.').pop().toLowerCase();
-      return supportedExtensions.includes(ext);
-    });
-
-    if (validFiles.length === 0) {
-      if (window.CC?.toast) window.CC.toast.show('No supported files found. Supports: .json, .pdf, .docx, .txt, .md, .html', 'warning');
-      return;
-    }
-
-    let successCount = 0;
-    let errorCount = 0;
-    const total = validFiles.length;
-
-    for (let i = 0; i < validFiles.length; i++) {
-      const file = validFiles[i];
-      const ext = '.' + file.name.split('.').pop().toLowerCase();
-
-      if (total > 1 && window.CC?.toast) {
-        window.CC.toast.show(`Importing ${i + 1} of ${total} files...`, 'info');
-      }
-
-      try {
-        switch (ext) {
-          case '.json':
-            await importManager.importJSON(file);
-            break;
-          case '.pdf':
-            await importManager.importPDF(file);
-            break;
-          case '.png':
-          case '.jpg':
-          case '.jpeg':
-            if (importManager.importImage) {
-              await importManager.importImage(file);
-            } else {
-              window.CC?.toast?.show?.('Image import not supported yet', 'warning');
-            }
-            break;
-          case '.docx':
-            if (importManager.importDOCX) {
-              await importManager.importDOCX(file);
-            } else {
-              await importManager.importPlainText(file);
-            }
-            break;
-          case '.txt':
-          case '.md':
-          case '.html':
-          default:
-            await importManager.importPlainText(file);
-            break;
-        }
-        successCount++;
-      } catch (error) {
-        console.error(`Failed to import ${file.name}:`, error);
-        errorCount++;
-      }
+    // Single code path for all drops: routing, validation, duplicates,
+    // batch progress and navigation live in the import manager.
+    try {
+      await importManager.importFileBatch(Array.from(fileList || []));
+    } catch (error) {
+      console.error('Drop import failed:', error);
     }
 
     // Reload documents after all imports
     await this.loadDocuments();
-
-    // Show result toast
-    if (total > 1 || errorCount > 0) {
-      if (errorCount === 0) {
-        if (window.CC?.toast) window.CC.toast.show(`Successfully imported ${successCount} ${successCount === 1 ? 'file' : 'files'}`, 'success');
-      } else {
-        if (window.CC?.toast) window.CC.toast.show(`Imported ${successCount} of ${total} files (${errorCount} failed)`, 'warning');
-      }
-    }
   }
 
   /**

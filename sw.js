@@ -1,4 +1,4 @@
-const CACHE_NAME = 'careercanvas-v14';
+const CACHE_NAME = 'careercanvas-v16';
 const STATIC_ASSETS = [
   './',
   './index.html',
@@ -25,6 +25,11 @@ const STATIC_ASSETS = [
   './src/js/utils/sanitize.js',
   './src/js/utils/format.js',
   './src/js/utils/id.js',
+  './src/js/utils/text-parse.js',
+  './src/js/modules/ai-formatter.js',
+  './src/js/modules/local-ai.js',
+  './src/js/modules/advanced-local-ai.js',
+  './src/js/modules/local-resume-parser.js',
   './src/js/modules/onboarding.js',
   './src/js/modules/dashboard.js',
   './src/js/modules/editor.js',

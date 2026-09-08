@@ -139,7 +139,7 @@ const creativePortfolio = {
       html += `<div style="margin-bottom: 28px;">`;
       html += `<h2 style="font-size: 24px; font-weight: 700; color: var(--accent-color, #ec4899); margin-bottom: 16px;">${e(section.title || section.type)}</h2>`;
 
-      const items = section.items.filter(shouldRenderItem);
+      const items = (section.items || []).filter(shouldRenderItem);
 
       if (getSectionType(section) === 'experience') {
         items.forEach(item => {
@@ -212,7 +212,7 @@ const designerGrid = {
     const skillsSection = sections.find(s => s.type === 'skills' && shouldRender(s));
     if (skillsSection) {
       html += `<h3 style="font-size: 14px; font-weight: 700; color: var(--accent-color, #f59e0b); margin-top: 20px; margin-bottom: 10px;">SKILLS</h3>`;
-      skillsSection.items.filter(shouldRenderItem).forEach(item => {
+      (skillsSection.items || []).filter(shouldRenderItem).forEach(item => {
         if (item.skills) {
           item.skills.forEach(skill => {
             html += `<div style="font-size: 12px; margin-bottom: 4px;">• ${e(skill)}</div>`;
@@ -238,7 +238,7 @@ const designerGrid = {
       html += `<div style="margin-bottom: 24px;">`;
       html += `<h2 style="font-size: 20px; font-weight: 700; color: var(--accent-color, #f59e0b); margin-bottom: 12px;">${e(section.title || section.type)}</h2>`;
 
-      section.items.filter(shouldRenderItem).forEach(item => {
+      (section.items || []).filter(shouldRenderItem).forEach(item => {
         html += `<div style="margin-bottom: 14px;">`;
         if (item.jobTitle || item.degree) html += `<div style="font-weight: 700;">${e(item.jobTitle || item.degree)}</div>`;
         if (item.company || item.institution) html += `<div style="color: #666;">${e(item.company || item.institution)}</div>`;
@@ -289,7 +289,7 @@ const editorialModern = {
     html += `</div>`;
     sections.filter(shouldRender).forEach(section => {
       html += `<div style="margin-top: 24px;"><h2 style="font-size: 22px; font-weight: 600; color: var(--accent-color, #0891b2);">${e(section.title || section.type)}</h2>`;
-      section.items.filter(shouldRenderItem).forEach(item => {
+      (section.items || []).filter(shouldRenderItem).forEach(item => {
         if (item.jobTitle || item.degree) html += `<div style="margin: 12px 0; font-size: 16px;"><strong>${e(item.jobTitle || item.degree)}</strong></div>`;
       });
       html += `</div>`;
@@ -330,7 +330,7 @@ const boldContemporary = {
     html += `</div>`;
     sections.filter(shouldRender).forEach(section => {
       html += `<div style="margin-top: 28px;"><h2 style="font-size: 28px; font-weight: 900; color: var(--accent-color, #dc2626);">${e(section.title || section.type).toUpperCase()}</h2>`;
-      section.items.filter(shouldRenderItem).forEach(item => {
+      (section.items || []).filter(shouldRenderItem).forEach(item => {
         if (item.jobTitle || item.degree) html += `<div style="margin: 10px 0; font-weight: 700;">${e(item.jobTitle || item.degree)}</div>`;
       });
       html += `</div>`;
@@ -371,7 +371,7 @@ const studioMinimal = {
     html += `</div>`;
     sections.filter(shouldRender).forEach(section => {
       html += `<div style="margin-bottom: 40px;"><h2 style="font-size: 14px; font-weight: 600; letter-spacing: 2px; margin-bottom: 20px; color: var(--accent-color, #000);">${e(section.title || section.type).toUpperCase()}</h2>`;
-      section.items.filter(shouldRenderItem).forEach(item => {
+      (section.items || []).filter(shouldRenderItem).forEach(item => {
         html += `<div style="margin-bottom: 16px; font-size: 14px;">`;
         if (item.jobTitle || item.degree) html += `${e(item.jobTitle || item.degree)}`;
         html += `</div>`;

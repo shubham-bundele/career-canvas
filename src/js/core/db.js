@@ -191,6 +191,35 @@ export class Database {
     return transaction.objectStore(storeName);
   }
 
+  /** True for storage-quota failures across browsers. */
+  static isQuotaError(err) {
+    if (!err) return false;
+    if (err.name === 'QuotaExceededError') return true;
+    return /quota|storage.*full|full.*storage/i.test(String(err.message || ''));
+  }
+
+  /** Global guidance toast on quota failure (best-effort, never throws). */
+  _notifyQuota(storeName) {
+    try {
+      window.CC?.toast?.show?.(
+        `Browser storage is full — "${storeName}" was NOT saved. Export a backup first (Dashboard → Export All), then delete old documents.`,
+        'error',
+        10000
+      );
+    } catch { /* ignore */ }
+  }
+
+  _qualifyWriteError(err, storeName) {
+    if (Database.isQuotaError(err)) {
+      this._notifyQuota(storeName);
+      const friendly = new Error(`Storage full: could not save to "${storeName}". Export a backup, then free space.`);
+      friendly.cause = err;
+      friendly.quotaExceeded = true;
+      throw friendly;
+    }
+    throw err;
+  }
+
   /**
    * Creates a record
    * @param {string} storeName - Store name
@@ -200,13 +229,17 @@ export class Database {
   async create(storeName, data) {
     await this.ensureReady();
 
-    return new Promise((resolve, reject) => {
-      const store = this.getStore(storeName, 'readwrite');
-      const request = store.add(data);
+    try {
+      return await new Promise((resolve, reject) => {
+        const store = this.getStore(storeName, 'readwrite');
+        const request = store.add(data);
 
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    } catch (err) {
+      this._qualifyWriteError(err, storeName);
+    }
   }
 
   /**
@@ -236,13 +269,17 @@ export class Database {
   async update(storeName, data) {
     await this.ensureReady();
 
-    return new Promise((resolve, reject) => {
-      const store = this.getStore(storeName, 'readwrite');
-      const request = store.put(data);
+    try {
+      return await new Promise((resolve, reject) => {
+        const store = this.getStore(storeName, 'readwrite');
+        const request = store.put(data);
 
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    } catch (err) {
+      this._qualifyWriteError(err, storeName);
+    }
   }
 
   /**

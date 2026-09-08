@@ -5,6 +5,7 @@
 
 import { escapeHtml } from '../utils/sanitize.js';
 import { generateId } from '../utils/id.js';
+import { STORES } from '../core/db.js';
 import { timeAgo, wordCount, charCount } from '../utils/format.js';
 import { getTipsForSection } from '../data/writing-tips.js';
 import {
@@ -328,6 +329,14 @@ export class ResumeEditor {
     smartSection.appendChild(smartBtn);
     toolbar.appendChild(smartSection);
 
+    // Match-to-JD button (in-editor tailoring check)
+    const jdBtn = document.createElement('button');
+    jdBtn.className = 'toolbar-btn';
+    jdBtn.textContent = '🎯 Match to JD';
+    jdBtn.title = 'Score this resume against a job description';
+    jdBtn.addEventListener('click', () => this.showJdMatchModal());
+    smartSection.appendChild(jdBtn);
+
     // Undo/Redo
     const historySection = document.createElement('div');
     historySection.className = 'toolbar-section toolbar-history';
@@ -347,6 +356,14 @@ export class ResumeEditor {
     redoBtn.disabled = !this.canRedo();
     redoBtn.addEventListener('click', this.handleRedo);
     historySection.appendChild(redoBtn);
+
+    const findBtn = document.createElement('button');
+    findBtn.className = 'toolbar-btn icon-btn';
+    findBtn.innerHTML = '&#128269;';
+    findBtn.title = 'Find & Replace';
+    findBtn.setAttribute('aria-label', 'Find and replace in document');
+    findBtn.addEventListener('click', () => this.showFindReplace());
+    historySection.appendChild(findBtn);
 
     toolbar.appendChild(historySection);
 
@@ -2158,7 +2175,133 @@ export class ResumeEditor {
       panel.appendChild(atsSection);
     }
 
+    // Resume Score — live, fully offline
+    const scoreSection = document.createElement('div');
+    scoreSection.className = 'ats-section';
+    scoreSection.id = 'resume-score-section';
+    const scoreTitle = document.createElement('h4');
+    scoreTitle.textContent = 'Resume Score';
+    scoreSection.appendChild(scoreTitle);
+    const scoreBody = document.createElement('div');
+    scoreBody.className = 'ats-content';
+    scoreBody.id = 'resume-score-container';
+    scoreSection.appendChild(scoreBody);
+    panel.appendChild(scoreSection);
+    setTimeout(() => { try { this.refreshScoreBlock(); } catch {} }, 300);
+
     return panel;
+  }
+
+  /** Render/refresh the live resume-score block (pure scoring, offline). */
+  async refreshScoreBlock() {
+    const box = document.getElementById('resume-score-container');
+    if (!box || !this.document) return;
+    const { scoreResume, seniorityCheck, totalMonthsFromDoc } = await import('../utils/resume-score.js');
+    const { score, grade, issues } = scoreResume(this.document);
+    const sen = seniorityCheck(
+      this.document.personalInfo?.professionalTitle || this.document.personalInfo?.resumeHeadline || '',
+      totalMonthsFromDoc(this.document)
+    );
+    const all = sen ? [...issues, sen] : issues;
+    const color = score >= 85 ? '#047857' : score >= 70 ? '#1d4ed8' : score >= 50 ? '#b45309' : '#b91c1c';
+    const top = all.filter((i) => i.severity !== 'tip').slice(0, 4);
+    box.innerHTML = '';
+    const head = document.createElement('div');
+    head.style.cssText = 'display:flex;align-items:baseline;gap:8px;margin-bottom:6px;';
+    const val = document.createElement('span');
+    val.textContent = String(score);
+    val.style.cssText = `font-size:28px;font-weight:700;color:${color};`;
+    head.appendChild(val);
+    const gradeEl = document.createElement('span');
+    gradeEl.textContent = `/ 100 · ${grade}`;
+    gradeEl.style.cssText = 'font-size:12px;color:var(--text-secondary);';
+    head.appendChild(gradeEl);
+    const refreshBtn = document.createElement('button');
+    refreshBtn.className = 'btn btn-sm btn-ghost';
+    refreshBtn.textContent = '↻';
+    refreshBtn.title = 'Recompute score';
+    refreshBtn.style.marginLeft = 'auto';
+    refreshBtn.addEventListener('click', () => this.refreshScoreBlock());
+    head.appendChild(refreshBtn);
+    box.appendChild(head);
+    if (!top.length) {
+      const ok = document.createElement('p');
+      ok.textContent = 'No issues found — looking sharp.';
+      ok.style.cssText = 'font-size:12px;color:var(--text-secondary);margin:0;';
+      box.appendChild(ok);
+      return;
+    }
+    const ul = document.createElement('ul');
+    ul.style.cssText = 'margin:0;padding-left:16px;font-size:12px;color:var(--text-secondary);';
+    for (const i of top) {
+      const li = document.createElement('li');
+      li.textContent = i.message;
+      ul.appendChild(li);
+    }
+    box.appendChild(ul);
+  }
+
+  /** In-editor JD match modal: paste a JD, get score + missing keywords. */
+  async showJdMatchModal() {
+    const modalApi = window.CC?.modal;
+    if (!modalApi || typeof modalApi.show !== 'function') return;
+    const { scoreResumeVsJd, parseJobDescription } = await import('../utils/jd-parse.js');
+
+    const body = document.createElement('div');
+    body.style.cssText = 'display:flex;flex-direction:column;gap:var(--space-3);min-width:min(460px,84vw);';
+    const ta = document.createElement('textarea');
+    ta.className = 'form-input';
+    ta.rows = 8;
+    ta.placeholder = 'Paste the job description here…';
+    ta.style.width = '100%';
+    body.appendChild(ta);
+    const out = document.createElement('div');
+    out.style.cssText = 'font-size:var(--font-size-sm);color:var(--text-secondary);';
+    out.textContent = 'Paste a job description, then Score.';
+    body.appendChild(out);
+
+    const doScore = () => {
+      const jd = ta.value.trim();
+      if (jd.length < 20) { out.textContent = 'Paste at least a few lines of the job description.'; return; }
+      const { score, matched, missing } = scoreResumeVsJd(this.document, jd);
+      const jdInfo = parseJobDescription(jd);
+      out.innerHTML = '';
+      const h = document.createElement('div');
+      h.style.cssText = 'font-size:22px;font-weight:700;margin-bottom:6px;';
+      h.textContent = `Match: ${score}% (${matched.length} hit${matched.length === 1 ? '' : 's'}, ${missing.length} missing)`;
+      out.appendChild(h);
+      if (jdInfo.yearsRequired) {
+        const y = document.createElement('div');
+        y.textContent = `Requires ~${jdInfo.yearsRequired}y experience${jdInfo.seniority.level !== 'Unknown' ? ` · level: ${jdInfo.seniority.level}` : ''}`;
+        out.appendChild(y);
+      }
+      if (missing.length) {
+        const m = document.createElement('div');
+        m.style.marginTop = '6px';
+        m.textContent = `Missing: ${missing.slice(0, 12).join(', ')}${missing.length > 12 ? ` (+${missing.length - 12} more)` : ''}`;
+        out.appendChild(m);
+      }
+      const go = document.createElement('div');
+      go.style.marginTop = '8px';
+      const link = document.createElement('button');
+      link.className = 'btn btn-sm btn-outline';
+      link.textContent = 'Open full analysis in Job Matcher';
+      link.addEventListener('click', () => {
+        if (window.CC?.router) window.CC.router.navigate('/job-matcher');
+        else window.location.hash = '#/job-matcher';
+      });
+      go.appendChild(link);
+      out.appendChild(go);
+    };
+
+    modalApi.show({
+      title: 'Match to Job Description', body, size: 'small',
+      actions: [
+        { label: 'Close', type: 'secondary', handler: () => {} },
+        { label: 'Score', type: 'primary', handler: () => { doScore(); return false; } },
+      ],
+    });
+    setTimeout(() => ta.focus(), 50);
   }
 
   renderMobileNav() {
@@ -2176,6 +2319,7 @@ export class ResumeEditor {
       const btn = document.createElement('button');
       btn.className = 'mobile-nav-btn';
       btn.dataset.active = this.mobileView === tab.id;
+      btn.setAttribute('aria-label', tab.label);
       btn.innerHTML = `<span class="icon">${tab.icon}</span><span class="label">${tab.label}</span>`;
       btn.addEventListener('click', () => {
         this.mobileView = tab.id;
@@ -2183,6 +2327,21 @@ export class ResumeEditor {
       });
       nav.appendChild(btn);
     });
+
+    // Quick actions: Save (with live status) + Export PDF — no tab switching needed
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'mobile-nav-btn mobile-nav-save';
+    saveBtn.setAttribute('aria-label', 'Save now');
+    saveBtn.innerHTML = `<span class="icon">💾</span><span class="label">${this.getSaveStatusText() || 'Save'}</span>`;
+    saveBtn.addEventListener('click', () => this.saveDocument());
+    nav.appendChild(saveBtn);
+
+    const pdfBtn = document.createElement('button');
+    pdfBtn.className = 'mobile-nav-btn';
+    pdfBtn.setAttribute('aria-label', 'Export PDF');
+    pdfBtn.innerHTML = `<span class="icon">🖨️</span><span class="label">PDF</span>`;
+    pdfBtn.addEventListener('click', () => this.handleExport('pdf'));
+    nav.appendChild(pdfBtn);
 
     return nav;
   }
@@ -2357,6 +2516,15 @@ export class ResumeEditor {
     this.scheduleAutosave();
     this.schedulePreviewUpdate();
     this.updateProgressBar();
+    this.scheduleScoreRefresh();
+  }
+
+  /** Debounced live resume-score refresh (cheap: pure regex/word ops). */
+  scheduleScoreRefresh() {
+    if (this._scoreTimer) clearTimeout(this._scoreTimer);
+    this._scoreTimer = setTimeout(() => {
+      try { this.refreshScoreBlock(); } catch { /* panel may not exist */ }
+    }, 1200);
   }
 
   schedulePushHistory() {
@@ -2466,6 +2634,11 @@ export class ResumeEditor {
         statusEl.dataset.status = this.saveStatus;
         statusEl.textContent = this.getSaveStatusText();
       }
+    }
+    // Keep the mobile bottom-bar save button in sync
+    if (this.container) {
+      const label = this.container.querySelector('.mobile-nav-save .label');
+      if (label) label.textContent = this.saveStatus === 'saved' ? 'Saved ✓' : this.getSaveStatusText() || 'Save';
     }
   }
 
@@ -2742,6 +2915,11 @@ export class ResumeEditor {
       this.handleFieldChange();
       this.refreshLeftPanel();
     }});
+
+    // Section-level AI actions (bullets only; snapshot first)
+    actions.push({ label: '---' });
+    actions.push({ label: '✨ Improve All Bullets', handler: () => { this.runSectionAiAction(section, 'improve'); }});
+    actions.push({ label: '🗜 Condense Section', handler: () => { this.runSectionAiAction(section, 'condense'); }});
 
     // Page break preference
     actions.push({ label: section.pageBreakBefore ? '↩ Remove Page Break Before' : '📃 Page Break Before', handler: () => {
@@ -4009,6 +4187,36 @@ export class ResumeEditor {
       updateCounts();
     });
 
+    // Paste cleanup: strip Word/Office junk at paste time (not just on save),
+    // so pasted content is immediately clean + spell-fixed.
+    editorArea.addEventListener('paste', (e) => {
+      e.preventDefault();
+      const clipboard = e.clipboardData;
+      const html = clipboard ? (clipboard.getData('text/html') || '') : '';
+      const text = clipboard ? (clipboard.getData('text/plain') || '') : '';
+      import('../utils/rich-text-sanitizer.js').catch(() => null).then(async (mod) => {
+        let clean = '';
+        if (html && mod && mod.sanitizeRichText) {
+          clean = mod.sanitizeRichText(html);
+        } else if (mod && mod.plainTextToHtml) {
+          // Plain-text paste: fix obvious typos, then convert
+          let fixed = text;
+          try {
+            const { correctLine } = await import('../utils/text-parse.js');
+            fixed = String(text).split('\n').map((l) => correctLine(l).line).join('\n');
+          } catch { /* keep original text */ }
+          clean = mod.plainTextToHtml(fixed);
+        } else {
+          clean = (text || '').replace(/</g, '&lt;');
+        }
+        document.execCommand('insertHTML', false, clean);
+        isDirty = true;
+        updateCounts();
+      }).catch(() => {
+        document.execCommand('insertText', false, text);
+      });
+    });
+
     body.appendChild(editorArea);
 
     // Counts
@@ -4135,8 +4343,35 @@ export class ResumeEditor {
     }
   }
 
+  /**
+   * Safety snapshot before AI mutations. Clones synchronously (so the
+   * pre-mutation state is captured), writes async. At most one snapshot
+   * per kind every 5 minutes to avoid spamming Versions. Best-effort.
+   */
+  snapshotBeforeAI(kind = 'ai-apply') {
+    try {
+      const now = Date.now();
+      this._aiSnapshotAt = this._aiSnapshotAt || {};
+      if (now - (this._aiSnapshotAt[kind] || 0) < 5 * 60 * 1000) return;
+      this._aiSnapshotAt[kind] = now;
+      const db = window.CC?.db;
+      if (!db || typeof db.create !== 'function' || !this.document?.id) return;
+      const data = JSON.parse(JSON.stringify(this.document));
+      db.create(STORES.SNAPSHOTS, {
+        id: generateId(),
+        documentId: this.document.id,
+        name: `Before AI (${kind})`,
+        data,
+        createdAt: new Date().toISOString(),
+      }).then(() => {
+        if (window.CC?.toast) window.CC.toast.show('Snapshot saved — restore anytime from Versions', 'info');
+      }).catch(() => {});
+    } catch { /* never block the apply */ }
+  }
+
   _applyAiSuggestion(original, suggestion, fieldHint) {
     if (!original || !suggestion || !this.document) return false;
+    this.snapshotBeforeAI('ai-apply');
     const origClean = original.trim();
     const origNorm = origClean.toLowerCase().replace(/\s+/g, ' ');
     if (origNorm.length < 2) return false;
@@ -4355,6 +4590,141 @@ export class ResumeEditor {
     this.refreshLeftPanel();
   }
 
+  /** Find & replace dialog operating on the document model. */
+  async showFindReplace() {
+    const modalApi = window.CC?.modal;
+    if (!modalApi || typeof modalApi.show !== 'function') return;
+    const { countInDoc, findReplaceInDoc } = await import('../utils/find-replace.js');
+
+    const body = document.createElement('div');
+    body.style.cssText = 'display:flex;flex-direction:column;gap:var(--space-3);min-width:min(420px,80vw);';
+    const mk = (labelText, type = 'text') => {
+      const wrap = document.createElement('label');
+      wrap.style.cssText = 'display:flex;flex-direction:column;gap:4px;font-size:var(--font-size-sm);';
+      wrap.textContent = labelText;
+      const input = document.createElement('input');
+      input.type = type;
+      input.className = 'form-input';
+      input.style.width = '100%';
+      wrap.appendChild(input);
+      body.appendChild(wrap);
+      return input;
+    };
+    const findInput = mk('Find');
+    const replaceInput = mk('Replace with');
+    const caseRow = document.createElement('label');
+    caseRow.style.cssText = 'display:flex;align-items:center;gap:8px;font-size:var(--font-size-sm);';
+    const caseBox = document.createElement('input');
+    caseBox.type = 'checkbox';
+    caseRow.appendChild(caseBox);
+    caseRow.appendChild(document.createTextNode('Match case'));
+    body.appendChild(caseRow);
+    const countEl = document.createElement('p');
+    countEl.style.cssText = 'font-size:var(--font-size-sm);color:var(--text-secondary);margin:0;';
+    countEl.textContent = 'Type to count matches.';
+    body.appendChild(countEl);
+
+    const refresh = () => {
+      const n = countInDoc(this.document, findInput.value, caseBox.checked);
+      countEl.textContent = findInput.value ? `${n} match${n === 1 ? '' : 'es'} in this document` : 'Type to count matches.';
+    };
+    findInput.addEventListener('input', refresh);
+    caseBox.addEventListener('change', refresh);
+
+    modalApi.show({
+      title: 'Find & Replace',
+      body, size: 'small',
+      actions: [
+        { label: 'Close', type: 'secondary', handler: () => {} },
+        {
+          label: 'Replace All', type: 'primary',
+          handler: () => {
+            const find = findInput.value;
+            if (!find) return false;
+            this.snapshotBeforeAI('find-replace');
+            const { count } = findReplaceInDoc(this.document, find, replaceInput.value, caseBox.checked);
+            if (count > 0) {
+              this.handleFieldChange();
+              this.refreshLeftPanel();
+              this.updatePreview();
+            }
+            countEl.textContent = count > 0 ? `Replaced ${count} occurrence${count === 1 ? '' : 's'}. Undo (Ctrl+Z) reverts.` : 'No matches found.';
+            if (window.CC?.toast) window.CC.toast.show(count > 0 ? `Replaced ${count} occurrence${count === 1 ? '' : 's'}` : 'No matches found', count > 0 ? 'success' : 'info');
+            return false; // keep open for another pass
+          },
+        },
+      ],
+    });
+    setTimeout(() => findInput.focus(), 50);
+  }
+
+  /** Section-level AI: improve or condense every bullet in a section. */
+  async runSectionAiAction(section, kind) {
+    try {
+      const targets = [];
+      for (const item of section.items || []) {
+        if (!item || typeof item !== 'object') continue;
+        (item.achievements || []).forEach((a, i) => {
+          const t = typeof a === 'string' ? a : a?.text || '';
+          if (String(t).trim().length < 5) return;
+          const list = item.achievements;
+          const idx = i;
+          const wasString = typeof a === 'string';
+          targets.push({
+            get: () => (typeof list[idx] === 'string' ? list[idx] : list[idx]?.text || ''),
+            set: (v) => { list[idx] = wasString ? v : { ...list[idx], text: v }; },
+          });
+        });
+        for (const key of ['description', 'responsibilities', 'roleSummary']) {
+          if (typeof item[key] !== 'string' || !item[key].trim()) continue;
+          const lines = item[key].split('\n');
+          lines.forEach((line, li) => {
+            if (line.trim().length < 10) return;
+            targets.push({
+              get: () => item[key].split('\n')[li] || '',
+              set: (v) => {
+                const parts = item[key].split('\n');
+                parts[li] = v;
+                item[key] = parts.join('\n');
+              },
+            });
+          });
+        }
+      }
+      if (!targets.length) {
+        if (window.CC?.toast) window.CC.toast.show('No bullets found in this section', 'info');
+        return;
+      }
+      if (window.CC?.toast) window.CC.toast.show(kind === 'improve' ? 'Improving all bullets…' : 'Condensing section…', 'info');
+      const { AiFormatter } = await import('./ai-formatter.js');
+      const ai = new AiFormatter(AiFormatter.getApiKey());
+      const texts = targets.map((t) => t.get());
+      const out = kind === 'improve' ? await ai.bulkImprove(texts) : await ai.condenseBullets(texts);
+      if (!Array.isArray(out) || !out.length) throw new Error('AI returned nothing usable');
+      this.snapshotBeforeAI('section-' + kind);
+      let applied = 0;
+      out.slice(0, targets.length).forEach((v, i) => {
+        if (v && String(v).trim()) { targets[i].set(String(v).trim()); applied++; }
+      });
+      this.handleFieldChange();
+      this.refreshLeftPanel();
+      this.updatePreview();
+      if (window.CC?.toast) window.CC.toast.show(`Updated ${applied} bullet${applied === 1 ? '' : 's'}`, 'success');
+    } catch (err) {
+      console.error('Section AI action failed:', err);
+      if (window.CC?.toast) window.CC.toast.show('Section AI failed: ' + (err.message || err), 'error');
+    }
+  }
+
+  /** Skeleton placeholder for AI result areas while waiting (role=status for AT). */
+  aiLoadingSkeleton(label) {
+    return `<div class="cc-skeleton-block" role="status" aria-live="polite" aria-label="${String(label || 'Loading AI results').replace(/"/g, '')}">`
+      + `<div class="cc-skeleton cc-skeleton--title"></div>`
+      + `<div class="cc-skeleton cc-skeleton--line"></div>`
+      + `<div class="cc-skeleton cc-skeleton--line"></div>`
+      + `<div class="cc-skeleton cc-skeleton--short"></div></div>`;
+  }
+
   async showSmartFormatter() {
     const existing = document.querySelector('.smart-format-panel');
     if (existing) { existing.remove(); return; }
@@ -4491,14 +4861,33 @@ export class ResumeEditor {
           </div>
         `;
         aiContent.insertBefore(keyRow, aiContent.firstChild);
-        keyRow.querySelector('#smart-format-key-save').addEventListener('click', () => {
+        keyRow.querySelector('#smart-format-key-save').addEventListener('click', async (e) => {
+          const btn = e.currentTarget;
           const k = keyRow.querySelector('#smart-format-ai-key').value.trim();
           if (!k) return;
-          AiFormatter.setApiKey(k);
-          ai.apiKey = k;
-          ai.provider = ai._detectProvider(k);
-          keyRow.remove();
-          if (window.CC?.toast) window.CC.toast.show('API key saved', 'success');
+          btn.disabled = true;
+          const original = btn.textContent;
+          btn.textContent = 'Checking…';
+          try {
+            const check = await AiFormatter.validateKey(k);
+            if (check.ok || check.offline) {
+              AiFormatter.setApiKey(k);
+              ai.apiKey = k;
+              ai.provider = ai._detectProvider(k);
+              keyRow.remove();
+              if (window.CC?.toast) {
+                window.CC.toast.show(
+                  check.ok ? `API key valid (${check.provider === 'groq' ? 'Groq' : 'Gemini'})` : 'Could not reach provider — key saved anyway',
+                  check.ok ? 'success' : 'warning'
+                );
+              }
+            } else if (window.CC?.toast) {
+              window.CC.toast.show(check.error || 'Invalid key — not saved', 'error');
+            }
+          } finally {
+            btn.disabled = false;
+            btn.textContent = original;
+          }
         });
       };
 
@@ -4514,10 +4903,10 @@ export class ResumeEditor {
       analyzeBtn.className = 'btn btn-sm btn-primary';
       analyzeBtn.textContent = '🔍 AI Analyze';
       analyzeBtn.addEventListener('click', async () => {
-        if (!ai.apiKey) { showKeySetup(); return; }
+        if (!ai.apiKey && !AiFormatter.hasLocalOption()) { showKeySetup(); return; }
         analyzeBtn.disabled = true;
         analyzeBtn.textContent = '⏳ Analyzing...';
-        aiResultsArea.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;gap:var(--space-3);padding:var(--space-6);"><div class="cc-spinner"></div><p style="color:var(--text-muted);font-size:var(--font-size-sm);">AI is analyzing your resume...</p></div>';
+        aiResultsArea.innerHTML = this.aiLoadingSkeleton('AI is analyzing your resume...');
         try {
           const suggestions = await ai.analyzeResume(this.document);
           aiResultsArea.innerHTML = '';
@@ -4645,10 +5034,10 @@ export class ResumeEditor {
       summaryBtn.className = 'btn btn-sm btn-outline';
       summaryBtn.textContent = '📝 AI Summary';
       summaryBtn.addEventListener('click', async () => {
-        if (!ai.apiKey) { showKeySetup(); return; }
+        if (!ai.apiKey && !AiFormatter.hasLocalOption()) { showKeySetup(); return; }
         summaryBtn.disabled = true;
         summaryBtn.textContent = '⏳ Generating...';
-        aiResultsArea.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;gap:var(--space-3);padding:var(--space-6);"><div class="cc-spinner"></div><p style="color:var(--text-muted);font-size:var(--font-size-sm);">Generating AI summary...</p></div>';
+        aiResultsArea.innerHTML = this.aiLoadingSkeleton('Generating AI summary...');
         try {
           const summary = await ai.generateSummary(this.document);
           aiResultsArea.innerHTML = '';
@@ -4750,6 +5139,8 @@ export class ResumeEditor {
 
     const formats = [
       { id: 'pdf', label: 'Export as PDF', icon: '📄' },
+      { id: 'docx', label: 'Export as Word (.docx)', icon: '📘' },
+      { id: 'verify-docx', label: 'Verify Word export', icon: '✅' },
       { id: 'text', label: 'Export as Text', icon: '📝' },
       { id: 'json', label: 'Export as JSON', icon: '💾' },
       { id: 'markdown', label: 'Export as Markdown', icon: '📋' },
@@ -5260,6 +5651,37 @@ export class ResumeEditor {
     this.updatePreview();
 
     const doc = this.document;
+    // Pre-export gate: offline validation + ATS audit. Errors block with an
+    // explicit override; warnings surface as a toast. Never silent.
+    try {
+      const tpl = this.templateEngine?.getById?.(doc.design?.template);
+      const facts = {
+        columnCount: tpl?.columnCount || 1,
+        atsMode: !!doc.settings?.atsMode,
+        hasPhoto: !!(doc.personalInfo?.photograph || doc.personalInfo?.photo),
+      };
+      if (typeof em.validateExportFull === 'function') {
+        const check = await em.validateExportFull(doc, facts);
+        if (check.errors.length > 0) {
+          const modalApi = window.CC?.modal;
+          const list = check.errors.map((e) => `• ${e}`).join('\n');
+          if (modalApi && typeof modalApi.confirm === 'function') {
+            const go = await modalApi.confirm(
+              `Export blocked by ${check.errors.length} issue${check.errors.length === 1 ? '' : 's'}:\n${list}\n\nExport anyway?`,
+              null, { title: 'Pre-export check' }
+            ).catch(() => false);
+            if (!go) return;
+          } else {
+            window.CC?.toast?.show('Export blocked: ' + check.errors[0], 'error');
+            return;
+          }
+        } else if (check.warnings.length > 0) {
+          window.CC?.toast?.show(`Export note: ${check.warnings[0]}${check.warnings.length > 1 ? ` (+${check.warnings.length - 1} more)` : ''}`, 'warning');
+        }
+      }
+    } catch (gateErr) {
+      console.warn('Pre-export check skipped:', gateErr);
+    }
     const getPreviewHTML = () => {
       const el = this.previewEl && this.previewEl.querySelector('.preview-content');
       if (!el || !el.innerHTML || el.innerHTML.includes('preview-loading') || el.innerHTML.includes('preview-error')) {
@@ -5331,6 +5753,27 @@ export class ResumeEditor {
       case 'markdown':
         em.exportMarkdown(doc);
         break;
+      case 'docx':
+        try {
+          const r = await em.exportDocx(doc);
+          window.CC?.toast?.show(`Word file exported (${Math.round(r.bytes / 1024)} KB)`, 'success');
+        } catch (err) {
+          console.error('DOCX export failed:', err);
+          window.CC?.toast?.show('Word export failed: ' + (err.message || err), 'error');
+        }
+        break;
+      case 'verify-docx': {
+        try {
+          const v = await em.verifyDocxExport(doc);
+          window.CC?.toast?.show(
+            v.ok ? `Word export verified — all key fields present (${Math.round(v.bytes / 1024)} KB)` : `Word export gaps: ${v.missing.join(', ')}`,
+            v.ok ? 'success' : 'warning', 8000
+          );
+        } catch (err) {
+          window.CC?.toast?.show('Verification failed: ' + (err.message || err), 'error');
+        }
+        break;
+      }
       default:
         if (window.CC && window.CC.toast) window.CC.toast.show(`Unknown export format: ${format}`, 'error');
     }

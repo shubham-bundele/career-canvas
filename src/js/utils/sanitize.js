@@ -303,8 +303,10 @@ export function isValidPhone(phone) {
     return false;
   }
 
-  // Allow digits, spaces, dashes, parentheses, and plus sign
-  const phonePattern = /^[+]?[(]?[0-9]{1,4}[)]?[-\s.]?[(]?[0-9]{1,4}[)]?[-\s.]?[0-9]{1,9}$/;
+  // Allow digits, spaces, dashes, dots, parentheses, plus; require 7-15 digits
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length < 7 || digits.length > 15) return false;
+  const phonePattern = /^[+]?[\d\s().\-]+$/;
   return phonePattern.test(phone.trim());
 }
 

@@ -1,45 +1,49 @@
 ﻿/**
  * Vercel Serverless Function — AI Resume Analysis
- * Proxies requests to Gemini API using server-side API key.
+ * Proxies requests to Gemini (Google key) or Groq (gsk_ key) using server-side key.
  * Users never see or enter any API key.
+ *
+ * Rollback: redeploy previous Vercel deployment; no DB migration involved.
  */
 
-const MODEL = 'gemini-3.7-flash';
+const MODEL = process.env.CC_GEMINI_MODEL || 'gemini-3.7-flash';
+const GROQ_MODEL = 'llama-3.3-70b-versatile';
 const MAX_INPUT_LENGTH = 15000;
 const TIMEOUT_MS = 30000;
+const MAX_REQUESTS_PER_MIN = 30;
+const _hits = [];
+
+function rateLimited() {
+  const now = Date.now();
+  while (_hits.length && now - _hits[0] > 60000) _hits.shift();
+  if (_hits.length >= MAX_REQUESTS_PER_MIN) return true;
+  _hits.push(now);
+  return false;
+}
 
 export default async function handler(req, res) {
-  // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   const apiKey = process.env.GEMINI_API_KEY || process.env.GROQ_API_KEY;
   if (!apiKey) {
     return res.status(503).json({ error: 'AI service not configured. Add GEMINI_API_KEY or GROQ_API_KEY in your environment variables.' });
   }
+  const isGroqKey = apiKey.startsWith('gsk_');
+  if (rateLimited()) return res.status(429).json({ error: 'Rate limited — wait a moment and try again.' });
 
   try {
     const { resumeText, resumeFile, resumeMimeType, mode, context } = req.body || {};
-
-    if (!resumeText && !resumeFile) {
-      return res.status(400).json({ error: 'Missing resumeText or resumeFile' });
-    }
-
+    if (!resumeText && !resumeFile) return res.status(400).json({ error: 'Missing resumeText or resumeFile' });
     if (resumeText && resumeText.length > MAX_INPUT_LENGTH) {
       return res.status(400).json({ error: `Resume text too long (max ${MAX_INPUT_LENGTH} chars)` });
     }
 
     let systemPrompt, userPrompt;
-
     if (mode === 'summary') {
       systemPrompt = 'You are a resume writing expert. Return ONLY the summary text, nothing else.';
       userPrompt = `Write a professional summary (40-60 words) for this person. Be specific about experience level, key skills, and achievements.\n\nResume:\n${resumeText}`;
@@ -88,37 +92,58 @@ export default async function handler(req, res) {
     } else if (mode === 'translate') {
       systemPrompt = `You are a professional translator. Translate this resume content to ${context || 'Spanish'}. Maintain professional resume conventions for the target language/culture. Return ONLY the translated text.`;
       userPrompt = resumeText;
+    } else if (mode === 'analyze') {
+      systemPrompt = 'You are a professional resume reviewer. Return ONLY a valid JSON array of {category,severity,message,field,original,suggestion}. Max 12.';
+      userPrompt = `Analyze this resume and suggest improvements:\n\n${resumeText}`;
+    } else if (mode === 'resume-score') {
+      systemPrompt = 'You are an ATS scorer. Return ONLY valid JSON: {"score":0-100,"breakdown":{"keywords":0-25,"experience":0-25,"formatting":0-25,"impact":0-25},"tips":["..."]}.';
+      userPrompt = `Score this resume:\n\n${resumeText}`;
+    } else if (mode === 'keyword-optimization' || mode === 'ats-fix') {
+      systemPrompt = 'You are a resume optimizer. Return ONLY a valid JSON array of {field,original,suggestion,message}. Max 10.';
+      userPrompt = `Optimize resume for this job:\n\nResume:\n${resumeText}\n\nJob:\n${context || ''}`;
     } else if (mode === 'parse') {
-      systemPrompt = `You are a world-class resume parser and OCR correction AI. Extract highly structured data from raw, potentially messy or OCR-flattened resume text.\n\nReturn ONLY valid JSON (no markdown fences, no explanation) matching this schema:\n{\n  "name": "Full Name",\n  "title": "Professional Title or Designation",\n  "email": "email@example.com",\n  "phone": "phone number with country code if present",\n  "location": "City, State/Country",\n  "linkedin": "LinkedIn URL if found",\n  "github": "GitHub URL if found",\n  "website": "Personal website if found",\n  "sections": [\n    {\n      "title": "Exact heading as written in resume",\n      "type": "ONE of the allowed types below",\n      "content": ["each line as a separate string"]\n    }\n  ]\n}\n\nALLOWED SECTION TYPES: summary, experience, education, skills, projects, certifications, awards, publications, volunteer, languages, interests, references, custom.`;
+      systemPrompt = 'You are a resume parser. Return ONLY valid JSON: {"name":"","title":"","email":"","phone":"","location":"","linkedin":"","github":"","website":"","sections":[{"title":"","type":"","content":["..."]}]}. Allowed types: summary, experience, education, skills, projects, certifications, awards, publications, volunteer, languages, interests, references, custom.';
       userPrompt = `Parse this resume text:\n\n${resumeText}`;
+    } else {
+      return res.status(400).json({ error: `Unsupported mode '${mode}'` });
     }
 
-    const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + MODEL + ':generateContent?key=' + apiKey, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        systemInstruction: systemPrompt,
-        contents: [{ parts: [{ text: userPrompt }] }],
-        generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 1800,
-        },
-      }),
-    });
+    let response;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    try {
+      if (isGroqKey) {
+        response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST', signal: controller.signal,
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({ model: GROQ_MODEL, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], temperature: 0.2, max_tokens: 1800 }),
+        });
+      } else {
+        response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + MODEL + ':generateContent?key=' + apiKey, {
+          method: 'POST', signal: controller.signal,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ systemInstruction: { parts: [{ text: systemPrompt }] }, contents: [{ parts: [{ text: userPrompt }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 1800 } }),
+        });
+      }
+    } finally { clearTimeout(timer); }
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`AI API request failed (${response.status}): ${errorText}`);
+      const status = response.status === 429 ? 429 : 502;
+      return res.status(status).json({ error: `AI API request failed (${response.status})`, details: errorText.slice(0, 500) });
     }
-
-    const data = await response.json();
-    const text = data?.candidates?.[0]?.content?.parts?.map((part) => part.text).join('') || '';
-
+    let text = '';
+    if (isGroqKey) {
+      const data = await response.json();
+      text = data?.choices?.[0]?.message?.content || '';
+    } else {
+      const data = await response.json();
+      text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text).join('') || '';
+    }
     return res.status(200).json({ result: text });
   } catch (error) {
+    if (error?.name === 'AbortError') return res.status(504).json({ error: 'AI request timed out after 30s.' });
     console.error('AI analyze failed:', error);
-    return res.status(500).json({ error: 'AI analysis failed.', details: error.message });
+    return res.status(500).json({ error: 'AI analysis failed.', details: String(error?.message || error).slice(0, 500) });
   }
 }
