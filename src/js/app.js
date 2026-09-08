@@ -61,9 +61,9 @@ class CareerCanvasApp {
       const hasVisited = localStorage.getItem('onboardingComplete') || localStorage.getItem('cc_auth_guest') || authState.isAuthenticated();
 
       if (!hasVisited) {
-        // First visit — always show welcome/login page
+        // First visit — land on signup (auth required before using the app)
         this.router.start();
-        this.router.navigate('/welcome');
+        this.router.navigate('/signup');
       } else {
         const onboardingDone = localStorage.getItem('onboardingComplete');
         if (!onboardingDone) {
@@ -616,7 +616,7 @@ class CareerCanvasApp {
       }
 
       if (!hasAccess && !publicRoutes.includes(toPath)) {
-        this.router.navigate('/welcome');
+        this.router.navigate('/signup');
         return false;
       }
 
