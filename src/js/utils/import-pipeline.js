@@ -4,9 +4,9 @@
  * structured content — fully on-device, cloud AI is enhancement only.
  *
  * Stages: cleanup → section canonicalization → entry splitting →
- * skills grouping → bounded correction → report.
+ * skills grouping → bounded correction → bullet tidy → dedup → report.
  */
-import { matchHeaderFuzzy, correctLine } from './text-parse.js';
+import { matchHeaderFuzzy, correctLine, looksLikeDateRange } from './text-parse.js';
 
 // ---- Stage 1: text cleanup -----------------------------------------------
 
@@ -128,6 +128,48 @@ export function splitExperienceEntries(contentLines) {
   return entries.filter((e) => e.header || e.bullets.length > 0);
 }
 
+// ---- Stage 3b: education entry splitting ----------------------------------
+
+const DEGREE_RE = /\b(b\.?\s?tech|m\.?\s?tech|bachelor|master'?s?|mba|ph\.?\s?d|b\.?\s?sc|m\.?\s?sc|b\.?\s?com|m\.?\s?com|b\.?\s?a\b|m\.?\s?a\b|diploma|degree|associate|engg?\.?)\b/i;
+const YEAR_FRAG = /\b((?:19|20)\d{2})\b/;
+
+/**
+ * Split flat education content into entries { degree, institution, year, extras[] }.
+ * "B.Tech, MIT, 2019" -> degree "B.Tech", institution "MIT", year "2019".
+ * Plain lines attach as extras of the current entry.
+ */
+export function splitEducationEntries(contentLines) {
+  const entries = [];
+  let current = null;
+  const start = () => {
+    current = { degree: '', institution: '', year: '', extras: [] };
+    entries.push(current);
+  };
+  const isBullet = (line) => /^[•\-*]\s/.test(line) || /^\d+[.)]\s/.test(line);
+  for (const raw of contentLines || []) {
+    const line = String(raw || '').trim();
+    if (!line) continue;
+    const text = line.replace(/^[•\-*]\s*/, '').replace(/^\d+[.)]\s*/, '').trim();
+    const year = (text.match(YEAR_FRAG) || [])[1] || '';
+    const hasDegree = DEGREE_RE.test(text);
+    if (!isBullet(line) && (hasDegree || (year && text.length < 90))) {
+      if (current && (current.degree || current.institution) && (hasDegree || (year && year !== current.year))) start();
+      if (!current) start();
+      for (const p of text.split(/[,|;—–-]/).map((s) => s.trim()).filter(Boolean)) {
+        const y = (p.match(YEAR_FRAG) || [])[1] || '';
+        if (y && !current.year) { current.year = y; continue; }
+        if (DEGREE_RE.test(p) && !current.degree) { current.degree = p; continue; }
+        if (!current.institution && p !== y) { current.institution = p; continue; }
+        if (p && p !== current.degree && p !== current.institution && p !== current.year) current.extras.push(p);
+      }
+      continue;
+    }
+    if (!current) start();
+    current.extras.push(text);
+  }
+  return entries.filter((e) => e.degree || e.institution || e.extras.length > 0);
+}
+
 // ---- Stage 4: skills grouping ----------------------------------------------
 
 const SKILL_GROUPS = [
@@ -174,6 +216,72 @@ export function correctProse(lines) {
   return { lines: out, fixed };
 }
 
+// ---- Stage 6: bullet tidy (conservative, meaning-preserving) ----------------
+
+/**
+ * Strip bullet prefixes, capitalise the first letter, ensure terminal
+ * punctuation is a single period when the line otherwise lacks one, and
+ * collapse duplicate whitespace. Never rewrites tense or meaning.
+ * Returns { lines, tidied } — tidied counts lines whose text changed.
+ */
+export function tidyBullets(lines) {
+  let tidied = 0;
+  const out = (lines || []).map((raw) => {
+    const line = String(raw ?? '');
+    if (!line.trim()) return line;
+    // Protected lines pass through untouched.
+    if (/@|https?:|www\.|linkedin|github/.test(line)) return line;
+    let text = line.replace(/^\s*[•\-*▪▸►⦁◦‣·]\s*/, '').trim();
+    text = text.replace(/\s+/g, ' ').trim();
+    if (!text) return line;
+    // Capitalise first character when it is a lowercase letter.
+    if (/^[a-z]/.test(text)) text = text.charAt(0).toUpperCase() + text.slice(1);
+    // Normalise trailing punctuation: keep !/?, add . when none, drop duplicate ..
+    text = text.replace(/\s*[;,.]+\s*$/, '');
+    if (!/[.!?]$/.test(text)) text += '.';
+    const rebuilt = `• ${text}`;
+    if (rebuilt !== line) tidied++;
+    return rebuilt;
+  });
+  return { lines: out, tidied };
+}
+
+// ---- Helpers: dedup + empty prune -----------------------------------------
+
+/**
+ * Merge duplicate sections (same canonical type+title) by concatenating content
+ * and _entries/_eduEntries. Drops sections whose content is empty after cleanup.
+ * Returns { sections, merged } — merged counts dropped duplicate sections.
+ */
+export function mergeDuplicateSections(sections) {
+  const byKey = new Map();
+  let merged = 0;
+  for (const sec of sections || []) {
+    if (!sec || typeof sec !== 'object') continue;
+    const hasContent = (Array.isArray(sec.content) ? sec.content.length > 0 : false)
+      || (Array.isArray(sec._entries) && sec._entries.length > 0)
+      || (Array.isArray(sec._eduEntries) && sec._eduEntries.length > 0);
+    if (!hasContent) { merged++; continue; }
+    const key = `${sec.type || 'custom'}::${(sec.title || '').toLowerCase()}`;
+    if (!byKey.has(key)) { byKey.set(key, { ...sec, content: [...(sec.content || [])] }); continue; }
+    const prev = byKey.get(key);
+    // Merge content (dedupe lines case-insensitively)
+    const seen = new Set(prev.content.map((l) => String(l).toLowerCase()));
+    for (const line of sec.content || []) {
+      if (!seen.has(String(line).toLowerCase())) { prev.content.push(line); seen.add(String(line).toLowerCase()); }
+    }
+    // Merge entry arrays when present
+    if (Array.isArray(sec._entries) && sec._entries.length > 0) {
+      prev._entries = [...(prev._entries || []), ...sec._entries];
+    }
+    if (Array.isArray(sec._eduEntries) && sec._eduEntries.length > 0) {
+      prev._eduEntries = [...(prev._eduEntries || []), ...sec._eduEntries];
+    }
+    merged++;
+  }
+  return { sections: [...byKey.values()], merged };
+}
+
 // ---- Orchestrator -----------------------------------------------------------
 
 /**
@@ -181,10 +289,10 @@ export function correctProse(lines) {
  * Returns { parsed, report } — parsed keeps its shape (safe for review UI).
  */
 export function normalizePipeline(parsed, opts = {}) {
-  const report = { linesCleaned: 0, typosFixed: 0, sectionsMapped: 0, skillsGrouped: 0, entriesSplit: 0 };
+  const report = { linesCleaned: 0, typosFixed: 0, sectionsMapped: 0, skillsGrouped: 0, entriesSplit: 0, bulletsTidied: 0, sectionsMerged: 0 };
   if (!parsed || typeof parsed !== 'object') return { parsed, report };
 
-  const out = { ...parsed, sections: [] };
+  const staged = [];
   for (const sec of parsed.sections || []) {
     if (!sec || typeof sec !== 'object') continue;
     const canon = canonicalizeSection(sec.title, sec.type);
@@ -207,14 +315,39 @@ export function normalizePipeline(parsed, opts = {}) {
       }
     }
     let entries = null;
+    let eduEntries = null;
+    let tidied = 0;
     if (canon.type === 'experience') {
       entries = splitExperienceEntries(content);
       report.entriesSplit += entries.length;
+      // Tidy only bullets, keep header/dates as-is; rewrite content as tidy bullets for the editor.
+      const bulletLines = entries.flatMap((e) => e.bullets);
+      if (bulletLines.length > 0) {
+        const t = tidyBullets(bulletLines);
+        tidied = t.tidied;
+        // Map tidied bullets back into entries, then rebuild content as header + tidied bullets.
+        let idx = 0;
+        for (const e of entries) {
+          for (let i = 0; i < e.bullets.length; i++) e.bullets[i] = t.lines[idx++];
+        }
+        content = entries.flatMap((e) => [e.header, ...e.bullets].filter(Boolean));
+      }
+    } else if (canon.type === 'education') {
+      eduEntries = splitEducationEntries(content);
+      report.entriesSplit += eduEntries.length;
+    } else if (Array.isArray(content) && content.some((l) => /^[•\-*]/.test(String(l).trim()) || /^\d+[.)]\s/.test(String(l).trim()))) {
+      // Other list-like sections (projects etc.): tidy any bullet lines.
+      const t = tidyBullets(content);
+      if (t.tidied > 0) { content = t.lines; tidied = t.tidied; }
     }
-    out.sections.push({ ...sec, title: canon.title, type: canon.type, content, ...(entries ? { _entries: entries } : {}) });
+    if (tidied > 0) report.bulletsTidied += tidied;
+    const hasDates = content.some((l) => looksLikeDateRange(String(l)));
+    staged.push({ ...sec, title: canon.title, type: canon.type, content, ...(entries ? { _entries: entries } : {}), ...(eduEntries ? { _eduEntries: eduEntries } : {}), ...(hasDates ? { _hasDates: true } : {}) });
   }
-  report.linesCleaned = report.typosFixed; // typos fixed across cleaned lines
-  return { parsed: out, report };
+  const merged = mergeDuplicateSections(staged);
+  report.sectionsMerged = merged.merged;
+  report.linesCleaned = report.typosFixed;
+  return { parsed: { ...parsed, sections: merged.sections }, report };
 }
 
-export default { cleanExtractedText, canonicalizeSection, splitExperienceEntries, groupSkills, correctProse, normalizePipeline, isPageArtifact };
+export default { cleanExtractedText, canonicalizeSection, splitExperienceEntries, splitEducationEntries, groupSkills, correctProse, tidyBullets, mergeDuplicateSections, normalizePipeline, isPageArtifact };
