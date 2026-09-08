@@ -329,6 +329,14 @@ export class ResumeEditor {
     smartSection.appendChild(smartBtn);
     toolbar.appendChild(smartSection);
 
+    // Match-to-JD button (in-editor tailoring check)
+    const jdBtn = document.createElement('button');
+    jdBtn.className = 'toolbar-btn';
+    jdBtn.textContent = '🎯 Match to JD';
+    jdBtn.title = 'Score this resume against a job description';
+    jdBtn.addEventListener('click', () => this.showJdMatchModal());
+    smartSection.appendChild(jdBtn);
+
     // Undo/Redo
     const historySection = document.createElement('div');
     historySection.className = 'toolbar-section toolbar-history';
@@ -2167,7 +2175,133 @@ export class ResumeEditor {
       panel.appendChild(atsSection);
     }
 
+    // Resume Score — live, fully offline
+    const scoreSection = document.createElement('div');
+    scoreSection.className = 'ats-section';
+    scoreSection.id = 'resume-score-section';
+    const scoreTitle = document.createElement('h4');
+    scoreTitle.textContent = 'Resume Score';
+    scoreSection.appendChild(scoreTitle);
+    const scoreBody = document.createElement('div');
+    scoreBody.className = 'ats-content';
+    scoreBody.id = 'resume-score-container';
+    scoreSection.appendChild(scoreBody);
+    panel.appendChild(scoreSection);
+    setTimeout(() => { try { this.refreshScoreBlock(); } catch {} }, 300);
+
     return panel;
+  }
+
+  /** Render/refresh the live resume-score block (pure scoring, offline). */
+  async refreshScoreBlock() {
+    const box = document.getElementById('resume-score-container');
+    if (!box || !this.document) return;
+    const { scoreResume, seniorityCheck, totalMonthsFromDoc } = await import('../utils/resume-score.js');
+    const { score, grade, issues } = scoreResume(this.document);
+    const sen = seniorityCheck(
+      this.document.personalInfo?.professionalTitle || this.document.personalInfo?.resumeHeadline || '',
+      totalMonthsFromDoc(this.document)
+    );
+    const all = sen ? [...issues, sen] : issues;
+    const color = score >= 85 ? '#047857' : score >= 70 ? '#1d4ed8' : score >= 50 ? '#b45309' : '#b91c1c';
+    const top = all.filter((i) => i.severity !== 'tip').slice(0, 4);
+    box.innerHTML = '';
+    const head = document.createElement('div');
+    head.style.cssText = 'display:flex;align-items:baseline;gap:8px;margin-bottom:6px;';
+    const val = document.createElement('span');
+    val.textContent = String(score);
+    val.style.cssText = `font-size:28px;font-weight:700;color:${color};`;
+    head.appendChild(val);
+    const gradeEl = document.createElement('span');
+    gradeEl.textContent = `/ 100 · ${grade}`;
+    gradeEl.style.cssText = 'font-size:12px;color:var(--text-secondary);';
+    head.appendChild(gradeEl);
+    const refreshBtn = document.createElement('button');
+    refreshBtn.className = 'btn btn-sm btn-ghost';
+    refreshBtn.textContent = '↻';
+    refreshBtn.title = 'Recompute score';
+    refreshBtn.style.marginLeft = 'auto';
+    refreshBtn.addEventListener('click', () => this.refreshScoreBlock());
+    head.appendChild(refreshBtn);
+    box.appendChild(head);
+    if (!top.length) {
+      const ok = document.createElement('p');
+      ok.textContent = 'No issues found — looking sharp.';
+      ok.style.cssText = 'font-size:12px;color:var(--text-secondary);margin:0;';
+      box.appendChild(ok);
+      return;
+    }
+    const ul = document.createElement('ul');
+    ul.style.cssText = 'margin:0;padding-left:16px;font-size:12px;color:var(--text-secondary);';
+    for (const i of top) {
+      const li = document.createElement('li');
+      li.textContent = i.message;
+      ul.appendChild(li);
+    }
+    box.appendChild(ul);
+  }
+
+  /** In-editor JD match modal: paste a JD, get score + missing keywords. */
+  async showJdMatchModal() {
+    const modalApi = window.CC?.modal;
+    if (!modalApi || typeof modalApi.show !== 'function') return;
+    const { scoreResumeVsJd, parseJobDescription } = await import('../utils/jd-parse.js');
+
+    const body = document.createElement('div');
+    body.style.cssText = 'display:flex;flex-direction:column;gap:var(--space-3);min-width:min(460px,84vw);';
+    const ta = document.createElement('textarea');
+    ta.className = 'form-input';
+    ta.rows = 8;
+    ta.placeholder = 'Paste the job description here…';
+    ta.style.width = '100%';
+    body.appendChild(ta);
+    const out = document.createElement('div');
+    out.style.cssText = 'font-size:var(--font-size-sm);color:var(--text-secondary);';
+    out.textContent = 'Paste a job description, then Score.';
+    body.appendChild(out);
+
+    const doScore = () => {
+      const jd = ta.value.trim();
+      if (jd.length < 20) { out.textContent = 'Paste at least a few lines of the job description.'; return; }
+      const { score, matched, missing } = scoreResumeVsJd(this.document, jd);
+      const jdInfo = parseJobDescription(jd);
+      out.innerHTML = '';
+      const h = document.createElement('div');
+      h.style.cssText = 'font-size:22px;font-weight:700;margin-bottom:6px;';
+      h.textContent = `Match: ${score}% (${matched.length} hit${matched.length === 1 ? '' : 's'}, ${missing.length} missing)`;
+      out.appendChild(h);
+      if (jdInfo.yearsRequired) {
+        const y = document.createElement('div');
+        y.textContent = `Requires ~${jdInfo.yearsRequired}y experience${jdInfo.seniority.level !== 'Unknown' ? ` · level: ${jdInfo.seniority.level}` : ''}`;
+        out.appendChild(y);
+      }
+      if (missing.length) {
+        const m = document.createElement('div');
+        m.style.marginTop = '6px';
+        m.textContent = `Missing: ${missing.slice(0, 12).join(', ')}${missing.length > 12 ? ` (+${missing.length - 12} more)` : ''}`;
+        out.appendChild(m);
+      }
+      const go = document.createElement('div');
+      go.style.marginTop = '8px';
+      const link = document.createElement('button');
+      link.className = 'btn btn-sm btn-outline';
+      link.textContent = 'Open full analysis in Job Matcher';
+      link.addEventListener('click', () => {
+        if (window.CC?.router) window.CC.router.navigate('/job-matcher');
+        else window.location.hash = '#/job-matcher';
+      });
+      go.appendChild(link);
+      out.appendChild(go);
+    };
+
+    modalApi.show({
+      title: 'Match to Job Description', body, size: 'small',
+      actions: [
+        { label: 'Close', type: 'secondary', handler: () => {} },
+        { label: 'Score', type: 'primary', handler: () => { doScore(); return false; } },
+      ],
+    });
+    setTimeout(() => ta.focus(), 50);
   }
 
   renderMobileNav() {
@@ -2382,6 +2516,15 @@ export class ResumeEditor {
     this.scheduleAutosave();
     this.schedulePreviewUpdate();
     this.updateProgressBar();
+    this.scheduleScoreRefresh();
+  }
+
+  /** Debounced live resume-score refresh (cheap: pure regex/word ops). */
+  scheduleScoreRefresh() {
+    if (this._scoreTimer) clearTimeout(this._scoreTimer);
+    this._scoreTimer = setTimeout(() => {
+      try { this.refreshScoreBlock(); } catch { /* panel may not exist */ }
+    }, 1200);
   }
 
   schedulePushHistory() {
@@ -4996,6 +5139,8 @@ export class ResumeEditor {
 
     const formats = [
       { id: 'pdf', label: 'Export as PDF', icon: '📄' },
+      { id: 'docx', label: 'Export as Word (.docx)', icon: '📘' },
+      { id: 'verify-docx', label: 'Verify Word export', icon: '✅' },
       { id: 'text', label: 'Export as Text', icon: '📝' },
       { id: 'json', label: 'Export as JSON', icon: '💾' },
       { id: 'markdown', label: 'Export as Markdown', icon: '📋' },
@@ -5506,6 +5651,37 @@ export class ResumeEditor {
     this.updatePreview();
 
     const doc = this.document;
+    // Pre-export gate: offline validation + ATS audit. Errors block with an
+    // explicit override; warnings surface as a toast. Never silent.
+    try {
+      const tpl = this.templateEngine?.getById?.(doc.design?.template);
+      const facts = {
+        columnCount: tpl?.columnCount || 1,
+        atsMode: !!doc.settings?.atsMode,
+        hasPhoto: !!(doc.personalInfo?.photograph || doc.personalInfo?.photo),
+      };
+      if (typeof em.validateExportFull === 'function') {
+        const check = await em.validateExportFull(doc, facts);
+        if (check.errors.length > 0) {
+          const modalApi = window.CC?.modal;
+          const list = check.errors.map((e) => `• ${e}`).join('\n');
+          if (modalApi && typeof modalApi.confirm === 'function') {
+            const go = await modalApi.confirm(
+              `Export blocked by ${check.errors.length} issue${check.errors.length === 1 ? '' : 's'}:\n${list}\n\nExport anyway?`,
+              null, { title: 'Pre-export check' }
+            ).catch(() => false);
+            if (!go) return;
+          } else {
+            window.CC?.toast?.show('Export blocked: ' + check.errors[0], 'error');
+            return;
+          }
+        } else if (check.warnings.length > 0) {
+          window.CC?.toast?.show(`Export note: ${check.warnings[0]}${check.warnings.length > 1 ? ` (+${check.warnings.length - 1} more)` : ''}`, 'warning');
+        }
+      }
+    } catch (gateErr) {
+      console.warn('Pre-export check skipped:', gateErr);
+    }
     const getPreviewHTML = () => {
       const el = this.previewEl && this.previewEl.querySelector('.preview-content');
       if (!el || !el.innerHTML || el.innerHTML.includes('preview-loading') || el.innerHTML.includes('preview-error')) {
@@ -5577,6 +5753,27 @@ export class ResumeEditor {
       case 'markdown':
         em.exportMarkdown(doc);
         break;
+      case 'docx':
+        try {
+          const r = await em.exportDocx(doc);
+          window.CC?.toast?.show(`Word file exported (${Math.round(r.bytes / 1024)} KB)`, 'success');
+        } catch (err) {
+          console.error('DOCX export failed:', err);
+          window.CC?.toast?.show('Word export failed: ' + (err.message || err), 'error');
+        }
+        break;
+      case 'verify-docx': {
+        try {
+          const v = await em.verifyDocxExport(doc);
+          window.CC?.toast?.show(
+            v.ok ? `Word export verified — all key fields present (${Math.round(v.bytes / 1024)} KB)` : `Word export gaps: ${v.missing.join(', ')}`,
+            v.ok ? 'success' : 'warning', 8000
+          );
+        } catch (err) {
+          window.CC?.toast?.show('Verification failed: ' + (err.message || err), 'error');
+        }
+        break;
+      }
       default:
         if (window.CC && window.CC.toast) window.CC.toast.show(`Unknown export format: ${format}`, 'error');
     }

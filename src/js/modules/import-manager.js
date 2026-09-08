@@ -578,7 +578,10 @@ export class ImportManager {
               if (this._isAiUnavailable(err) && parsedData._rawText) {
                 try {
                   const { parseResumeLocal } = await import('./local-resume-parser.js');
-                  const fresh = parseResumeLocal(parsedData._rawText, { filename: parsedData.sourceFile });
+                  const { normalizePipeline } = await import('../utils/import-pipeline.js');
+                  const local = parseResumeLocal(parsedData._rawText, { filename: parsedData.sourceFile });
+                  const { parsed: fresh, report } = normalizePipeline(local);
+                  fresh._pipelineReport = report;
                   for (const k of ['sourceFile', 'sourceType', '_rawText', 'images', 'fingerprint', '_docName', '_docType', '_templateId', '_mergeMode', '_mergeTargetId']) {
                     if (parsedData[k] !== undefined && fresh[k] === undefined) fresh[k] = parsedData[k];
                   }
@@ -1069,7 +1072,7 @@ export class ImportManager {
       const stats = createElement('div', '', { class: 'import-review-stats' });
       const secCount = parsedData.sections?.length || 0;
       const lineCount = parsedData.sections?.reduce((sum, s) => sum + (s.content?.length || 0), 0) || 0;
-      stats.textContent = `${secCount} sections · ${lineCount} content items`;
+      stats.textContent = `${secCount} sections · ${lineCount} content items${this._pipelineSummary(parsedData)}`;
       footer.appendChild(stats);
 
       // AI Format button
@@ -1342,13 +1345,16 @@ export class ImportManager {
       if (this._isAiUnavailable(err)) {
         try {
           const { parseResumeLocal } = await import('./local-resume-parser.js');
+          const { normalizePipeline } = await import('../utils/import-pipeline.js');
           const local = parseResumeLocal(resumeText, { filename: parsedData.sourceFile });
-          if (local && Array.isArray(local.sections) && local.sections.length > 0) {
+          const { parsed: localOut, report } = normalizePipeline(local);
+          if (localOut && Array.isArray(localOut.sections) && localOut.sections.length > 0) {
             return {
-              name: local.name, title: local.title, email: local.email,
-              phone: local.phone, location: local.location, linkedin: local.linkedin,
-              github: local.github, website: local.website,
-              sections: local.sections, _parser: 'local-smart-v1', _localFormat: true,
+              name: localOut.name, title: localOut.title, email: localOut.email,
+              phone: localOut.phone, location: localOut.location, linkedin: localOut.linkedin,
+              github: localOut.github, website: localOut.website,
+              sections: localOut.sections, _parser: 'local-smart-v1', _localFormat: true,
+              _pipelineReport: report,
             };
           }
         } catch (localErr) {
@@ -2933,13 +2939,23 @@ export class ImportManager {
   }
 
   async _parseTextWithFallback(text, filename = '') {
+    // Stage 0 — cleanup first: page artifacts, hyphen breaks and wrapped
+    // lines are fixed before ANY parser sees the text (AI included).
+    let cleanText = String(text || '');
+    let cleanStats = null;
+    try {
+      const { cleanExtractedText } = await import('../utils/import-pipeline.js');
+      const cleaned = cleanExtractedText(text);
+      cleanText = cleaned.text;
+      cleanStats = cleaned.stats;
+    } catch { /* use raw text */ }
     // 1) AI first: on-device (LocalAI/AdvancedLocalAI) when enabled,
     //    otherwise the server proxy, otherwise the user's own Gemini key.
     try {
       const { AiFormatter } = await import('./ai-formatter.js');
       const ai = new AiFormatter();
       if (window.CC?.toast) window.CC.toast.show('Analyzing document with AI...', 'info');
-      const parsed = await ai.parseResume(text);
+      const parsed = await ai.parseResume(cleanText);
       if (parsed && typeof parsed === 'object') {
         // Ensure sections exist
         if (!parsed.sections) parsed.sections = [];
@@ -2949,20 +2965,42 @@ export class ImportManager {
     } catch (err) {
       console.warn('AI parsing failed, falling back to local smart parsing:', err);
     }
-    // 2) Offline smart parser: fuzzy headers + spell correction + contacts.
+    // 2) Offline smart parser + normalization pipeline (canonical sections,
+    //    entry splitting, skills grouping, bounded correction).
     //    The upload filename hints the professional title ("Name - Title Resume.pdf").
     try {
       const { parseResumeLocal } = await import('./local-resume-parser.js');
-      const parsed = parseResumeLocal(text, { filename });
+      const { normalizePipeline } = await import('../utils/import-pipeline.js');
+      const parsed = parseResumeLocal(cleanText, { filename });
       if (parsed && (parsed.sections?.length || parsed.name || parsed.email)) {
+        const { parsed: normalized, report } = normalizePipeline(parsed);
+        normalized._pipelineReport = report;
+        if (cleanStats) {
+          report.artifactsDropped = cleanStats.artifactsDropped;
+          report.hyphensRepaired = cleanStats.hyphensRepaired;
+          report.linesJoined = cleanStats.linesJoined;
+        }
         if (window.CC?.toast) window.CC.toast.show('AI unavailable — parsed locally on your device.', 'info');
-        return parsed;
+        return normalized;
       }
     } catch (err) {
       console.warn('Local smart parsing failed, falling back to legacy parsing:', err);
     }
     // 3) Legacy exact-match parser (last resort).
     return this.parsePlainText(text);
+  }
+
+  /** One-line pipeline summary for the review wizard footer. */
+  _pipelineSummary(parsed) {
+    const r = parsed?._pipelineReport;
+    if (!r) return '';
+    const bits = [];
+    const cleaned = (r.artifactsDropped || 0) + (r.hyphensRepaired || 0) + (r.linesJoined || 0);
+    if (cleaned > 0) bits.push(`cleaned ${cleaned} line${cleaned === 1 ? '' : 's'}`);
+    if (r.typosFixed > 0) bits.push(`${r.typosFixed} typo${r.typosFixed === 1 ? '' : 's'} fixed`);
+    if (r.sectionsMapped > 0) bits.push(`${r.sectionsMapped} section${r.sectionsMapped === 1 ? '' : 's'} normalized`);
+    if (r.skillsGrouped > 0) bits.push(`${r.skillsGrouped} skills grouped`);
+    return bits.length ? ` · ${bits.join(' · ')}` : '';
   }
 
   /**

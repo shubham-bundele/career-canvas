@@ -4,6 +4,8 @@ import { generateUUID } from '../utils/id.js';
 import eventBus from '../core/events.js';
 import { STORES } from '../core/db.js';
 import { MATCH_VERBS } from '../data/action-verbs.js';
+import { learnUrl } from '../utils/skill-links.js';
+import { injectMissingSkills } from '../utils/jd-parse.js';
 
 const ANALYSIS_METHOD_VERSION = '1.0.0';
 const MAX_JD_LENGTH = 50000;
@@ -974,6 +976,9 @@ export class JobMatcher {
     sc.appendChild(details);
     w.appendChild(sc);
 
+    // Match delta vs the previous analysis of the same resume + JD
+    this.renderDeltaCard(w, r);
+
     // Category breakdown
     if (r.categoryResults && r.categoryResults.length > 0) {
       const catSec = createElement('div', '', { class: 'jm-categories' });
@@ -1150,6 +1155,31 @@ export class JobMatcher {
     c.appendChild(w);
   }
 
+  /** Match delta card: current score vs previous analysis of same resume + JD. */
+  async renderDeltaCard(container, r) {
+    try {
+      const all = await this.db.getAll(STORES.MATCH_ANALYSES);
+      const prev = (all || [])
+        .filter((a) => a.id !== r.id && a.resumeId === r.resumeId
+          && (a.jobDescriptionId || null) === (r.jobDescriptionId || null))
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+      if (!prev) return;
+      const now = r.overallEstimate ?? r.matchScore ?? 0;
+      const then = prev.overallEstimate ?? prev.matchScore ?? 0;
+      const d = now - then;
+      if (d === 0) return;
+      const card = createElement('div', '', { class: 'jm-delta-card' });
+      card.setAttribute('role', 'status');
+      const arrow = d > 0 ? '▲' : '▼';
+      card.textContent = d > 0
+        ? `${arrow} +${d} pts since ${new Date(prev.createdAt).toLocaleDateString()} — tailoring is working`
+        : `${arrow} ${d} pts since ${new Date(prev.createdAt).toLocaleDateString()} — review recent edits`;
+      card.style.cssText = `margin:12px 0;padding:10px 14px;border-radius:8px;font-size:13px;font-weight:600;`
+        + (d > 0 ? 'background:#d1fae5;color:#065f46;' : 'background:#fee2e2;color:#991b1b;');
+      container.appendChild(card);
+    } catch { /* delta is advisory only */ }
+  }
+
   renderTermSections(wrapper) {
     const container = wrapper.querySelector('#jm-term-sections');
     if (!container) return;
@@ -1248,6 +1278,13 @@ export class JobMatcher {
         const dismissBtn = createElement('button', 'Dismiss', { class: 'btn btn-sm btn-ghost jm-dismiss-btn' });
         this.addListener(dismissBtn, 'click', e => { e.stopPropagation(); this.dismissSuggestion(term.id); tag.remove(); });
         tag.appendChild(dismissBtn);
+        // Learn link: curated docs for known skills, search fallback otherwise.
+        try {
+          const { url } = learnUrl(term.displayTerm || '');
+          const learnBtn = createElement('a', 'Learn', { class: 'btn btn-sm btn-outline jm-learn-btn', href: url, target: '_blank', rel: 'noopener' });
+          learnBtn.setAttribute('aria-label', `Learn ${term.displayTerm}`);
+          tag.appendChild(learnBtn);
+        } catch { /* advisory only */ }
       }
       tags.appendChild(tag);
     });
@@ -1444,11 +1481,15 @@ export class JobMatcher {
       copy.linkedAnalysisId = r.id;
       // Carry the JD target so the editor + tracker know what this copy is for
       if (r.jobDescriptionTitleSnapshot || r.jobTitle) copy.targetRole = r.jobDescriptionTitleSnapshot || r.jobTitle;
+      // Inject genuinely-missing terms as disabled suggestions (user enables
+      // only what truthfully applies) — skipped for dismissed terms.
+      const dismissed = this.dismissedIds instanceof Set ? this.dismissedIds : new Set();
+      const missing = (r.missingTerms || r.missing || []).filter((t) => !dismissed.has(t?.id));
+      const { added } = injectMissingSkills(copy, missing, () => generateUUID());
       await this.db.put(STORES.DOCUMENTS, copy);
-      const missing = (r.missingTerms || r.missing || []).length;
       if (window.CC?.toast) window.CC.toast.show(
-        missing > 0
-          ? `Tailored copy created with ${missing} missing keyword${missing === 1 ? '' : 's'} to address`
+        added > 0
+          ? `Tailored copy created — ${added} JD skill${added === 1 ? '' : 's'} added as disabled suggestions (enable only what applies)`
           : `Tailored copy created: "${copy.name}"`,
         'success'
       );

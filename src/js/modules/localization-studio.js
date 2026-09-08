@@ -64,6 +64,50 @@ const HINDI_LABELS = {
   'References': 'संदर्भ',
 };
 
+/** Offline section-title dictionaries (AI Translate handles full text). */
+const TITLE_LABELS = {
+  hindi: HINDI_LABELS,
+  spanish: {
+    'Professional Summary': 'Resumen profesional',
+    'Work Experience': 'Experiencia laboral',
+    'Education': 'Educación',
+    'Skills': 'Habilidades',
+    'Projects': 'Proyectos',
+    'Certifications': 'Certificaciones',
+    'Languages': 'Idiomas',
+    'Volunteer Experience': 'Voluntariado',
+    'Awards': 'Premios',
+    'Publications': 'Publicaciones',
+    'References': 'Referencias',
+  },
+  french: {
+    'Professional Summary': 'Résumé professionnel',
+    'Work Experience': 'Expérience professionnelle',
+    'Education': 'Formation',
+    'Skills': 'Compétences',
+    'Projects': 'Projets',
+    'Certifications': 'Certifications',
+    'Languages': 'Langues',
+    'Volunteer Experience': 'Bénévolat',
+    'Awards': 'Prix et distinctions',
+    'Publications': 'Publications',
+    'References': 'Références',
+  },
+  german: {
+    'Professional Summary': 'Profil',
+    'Work Experience': 'Berufserfahrung',
+    'Education': 'Ausbildung',
+    'Skills': 'Kenntnisse',
+    'Projects': 'Projekte',
+    'Certifications': 'Zertifizierungen',
+    'Languages': 'Sprachen',
+    'Volunteer Experience': 'Ehrenamt',
+    'Awards': 'Auszeichnungen',
+    'Publications': 'Publikationen',
+    'References': 'Referenzen',
+  },
+};
+
 export class LocalizationStudio {
   constructor(db, events) {
     this.db = db;
@@ -193,6 +237,11 @@ export class LocalizationStudio {
     this.al(translateBtn, 'click', () => this.runAiTranslate(docSelect, langSelect, translateBtn));
     aiRow.appendChild(translateBtn);
 
+    const offlineBtn = createElement('button', 'Duplicate with Translated Titles (offline)', { class: 'btn btn-outline loc-ai-translate-btn', type: 'button' });
+    offlineBtn.title = 'Works without AI for Spanish, French, German and Hindi — duplicates the resume and translates section titles';
+    this.al(offlineBtn, 'click', () => this.duplicateWithTranslatedTitles(docSelect, langSelect, offlineBtn));
+    aiRow.appendChild(offlineBtn);
+
     aiSec.appendChild(aiRow);
     w.appendChild(aiSec);
 
@@ -237,8 +286,51 @@ export class LocalizationStudio {
     } catch {}
   }
 
-  async runAiTranslate(docSelect, langSelect, btn) {
+  /**
+   * Offline translation starter: duplicates the resume and translates
+   * section titles via built-in dictionaries (es/fr/de/hi). Full body text
+   * still needs AI Translate when available.
+   */
+  async duplicateWithTranslatedTitles(docSelect, langSelect, btn) {
     const docId = docSelect.value;
+    const lang = langSelect.value;
+    if (!docId) { this.toast('Please select a document first', 'error'); return; }
+    const dict = TITLE_LABELS[lang];
+    if (!dict) {
+      this.toast('Offline titles cover Spanish, French, German and Hindi — pick one of those, or use AI Translate', 'warning');
+      return;
+    }
+    btn.disabled = true;
+    try {
+      const orig = await this.db.get(STORES.DOCUMENTS, docId);
+      if (!orig) { this.toast('Document not found', 'error'); return; }
+      const copy = JSON.parse(JSON.stringify(orig));
+      copy.id = generateUUID();
+      copy.name = `${orig.name || 'Resume'} (${langSelect.options[langSelect.selectedIndex]?.text || lang})`;
+      copy.createdAt = new Date().toISOString();
+      copy.lastModified = copy.createdAt;
+      let translated = 0;
+      for (const sec of copy.sections || []) {
+        const key = Object.keys(dict).find((k) => k.toLowerCase() === String(sec.title || '').trim().toLowerCase());
+        if (key && dict[key] !== sec.title) { sec.title = dict[key]; translated++; }
+      }
+      copy.tags = [...new Set([...(copy.tags || []), `translated-${lang}-titles`])];
+      await this.db.put(STORES.DOCUMENTS, copy);
+      this.toast(
+        translated > 0
+          ? `Duplicated with ${translated} translated section title${translated === 1 ? '' : 's'} — run AI Translate for body text`
+          : 'Duplicated (no English section titles matched)',
+        translated > 0 ? 'success' : 'info'
+      );
+    } catch (err) {
+      console.error('Offline duplicate failed:', err);
+      this.toast('Could not duplicate the resume', 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async runAiTranslate(docSelect, langSelect, btn) {    const docId = docSelect.value;
     const lang = langSelect.value;
 
     if (!docId) {

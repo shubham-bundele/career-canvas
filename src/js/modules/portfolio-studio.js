@@ -33,6 +33,7 @@ export class PortfolioStudio {
     this.sections = DEFAULT_SECTIONS.map(s => ({ ...s }));
     this.contactLinks = [];
     this.theme = 'light';
+    this.hostedUrl = '';
   }
 
   // --------------- lifecycle ---------------
@@ -97,6 +98,7 @@ export class PortfolioStudio {
       if (Array.isArray(cfg.sections)) this.sections = cfg.sections;
       if (Array.isArray(cfg.contactLinks)) this.contactLinks = cfg.contactLinks;
       if (cfg.theme === 'light' || cfg.theme === 'dark') this.theme = cfg.theme;
+      if (typeof cfg.hostedUrl === 'string') this.hostedUrl = cfg.hostedUrl;
       if (this.selectedDocId) {
         this.selectedDoc = this.documents.find(d => d.id === this.selectedDocId) || null;
       }
@@ -111,12 +113,55 @@ export class PortfolioStudio {
         selectedDocId: this.selectedDocId,
         sections: this.sections,
         contactLinks: this.contactLinks,
-        theme: this.theme
+        theme: this.theme,
+        hostedUrl: this.hostedUrl || '',
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
       if (window.CC?.toast) window.CC.toast.show('Configuration saved', 'success');
     } catch (e) {
       if (window.CC?.toast) window.CC.toast.show('Failed to save configuration', 'error');
+    }
+  }
+
+  /** Push portfolio links (+ hosted page) into Link & QR Studio for QR codes. */
+  sendToLinkStudio() {
+    try {
+      const raw = localStorage.getItem('cc_links');
+      const existing = raw ? JSON.parse(raw) : [];
+      const have = new Set((Array.isArray(existing) ? existing : []).map((l) => String(l.url || '').toLowerCase()));
+      const guessType = (name, url) => {
+        const s = `${name || ''} ${url || ''}`.toLowerCase();
+        if (/linkedin/.test(s)) return 'LinkedIn';
+        if (/github/.test(s)) return 'GitHub';
+        if (/demo|project|portfolio|site|page/.test(s)) return 'Portfolio';
+        return 'Website';
+      };
+      const queue = [
+        ...(this.hostedUrl && this.hostedUrl.trim()
+          ? [{ name: 'My Portfolio Page', url: this.hostedUrl.trim() }] : []),
+        ...(this.contactLinks || []).filter((l) => l.url && l.url.trim()),
+      ];
+      let added = 0;
+      for (const q of queue) {
+        let url = String(q.url).trim();
+        if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+        if (have.has(url.toLowerCase())) continue;
+        have.add(url.toLowerCase());
+        existing.push({ id: generateUUID(), type: guessType(q.name, url), url, label: q.name || url });
+        added++;
+      }
+      localStorage.setItem('cc_links', JSON.stringify(existing));
+      if (window.CC?.toast) {
+        window.CC.toast.show(
+          added > 0
+            ? `Sent ${added} link${added === 1 ? '' : 's'} to Link & QR Studio — generate QR codes there`
+            : 'Those links are already in Link & QR Studio',
+          added > 0 ? 'success' : 'info'
+        );
+      }
+    } catch (err) {
+      console.error('Send to Link Studio failed:', err);
+      if (window.CC?.toast) window.CC.toast.show('Could not send links', 'error');
     }
   }
 
@@ -312,6 +357,24 @@ export class PortfolioStudio {
       this.renderBody();
     });
     wrap.appendChild(addBtn);
+
+    // Hosted page URL + bridge to Link & QR Studio (QR codes for print).
+    const hostedWrap = createElement('div', '', { class: 'port-hosted-wrap' });
+    hostedWrap.style.cssText = 'display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center;';
+    const hostedInput = createElement('input', '', {
+      type: 'url', class: 'port-input port-link-url',
+      placeholder: 'Hosted page URL (after you upload the exported HTML)…',
+      'aria-label': 'Hosted portfolio page URL',
+      value: this.hostedUrl || '',
+    });
+    hostedInput.style.flex = '1';
+    this.addListener(hostedInput, 'input', (e) => { this.hostedUrl = e.target.value; });
+    hostedWrap.appendChild(hostedInput);
+    const sendBtn = createElement('button', 'Send to Link & QR', { class: 'btn btn-sm btn-outline', type: 'button' });
+    sendBtn.title = 'Copy these links into Link & QR Studio to check them and generate QR codes';
+    this.addListener(sendBtn, 'click', () => this.sendToLinkStudio());
+    hostedWrap.appendChild(sendBtn);
+    wrap.appendChild(hostedWrap);
 
     return wrap;
   }

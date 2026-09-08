@@ -398,12 +398,88 @@ export class LinkQrStudio {
     const leftCol = createElement('div', '', { class: 'lqr-left-col' });
     leftCol.appendChild(this.renderLinkForm());
     leftCol.appendChild(this.renderLinkList());
+    leftCol.appendChild(this.renderLinkedInChecklist());
     layout.appendChild(leftCol);
 
     // Right column: QR preview
     layout.appendChild(this.renderQrPanel());
 
     c.appendChild(layout);
+  }
+
+  // ==================== LINKEDIN CHECKLIST ====================
+
+  /** Recruiter-visibility checklist for the user's LinkedIn profile (offline). */
+  renderLinkedInChecklist() {
+    const card = createElement('div', '', { class: 'lqr-list-section' });
+    const headerRow = createElement('div', '', { class: 'lqr-list-header' });
+    headerRow.appendChild(createElement('h2', 'LinkedIn Checklist', { class: 'lqr-section-title' }));
+    const scoreEl = createElement('span', '', { class: 'lqr-status-badge lqr-status-badge--unknown' });
+    headerRow.appendChild(scoreEl);
+    card.appendChild(headerRow);
+
+    const hint = createElement('p', 'Paste your headline + About text and counts — scored instantly on your device.', { class: 'lqr-empty-text' });
+    card.appendChild(hint);
+
+    const inputs = {};
+    const mk = (label, key, kind = 'text') => {
+      const g = createElement('div', '', { class: 'lqr-form-group' });
+      g.appendChild(createElement('label', label, { class: 'lqr-label' }));
+      const inp = kind === 'textarea'
+        ? createElement('textarea', '', { class: 'lqr-input', rows: '3' })
+        : createElement('input', '', { class: 'lqr-input', type: kind === 'number' ? 'number' : 'text', min: '0' });
+      inputs[key] = inp;
+      this.addListener(inp, 'input', refresh);
+      this.addListener(inp, 'change', refresh);
+      g.appendChild(inp);
+      card.appendChild(g);
+    };
+    mk('Profile URL (custom slug?)', 'url');
+    mk('Headline', 'headline');
+    mk('About section', 'summary', 'textarea');
+    mk('Experience entries (count)', 'expCount', 'number');
+    mk('Skills listed (count)', 'skillCount', 'number');
+    const photoRow = createElement('label', '', {});
+    photoRow.style.cssText = 'display:flex;align-items:center;gap:8px;font-size:13px;margin:4px 0;';
+    const photoBox = createElement('input', '', { type: 'checkbox' });
+    inputs.photo = photoBox;
+    this.addListener(photoBox, 'change', refresh);
+    photoRow.appendChild(photoBox);
+    photoRow.appendChild(document.createTextNode('Has a profile photo'));
+    card.appendChild(photoRow);
+
+    const list = createElement('div', '', { class: 'lqr-list' });
+    card.appendChild(list);
+
+    const refresh = async () => {
+      try {
+        const { scoreLinkedIn } = await import('../utils/linkedin-score.js');
+        const url = (inputs.url.value || '').trim();
+        const r = scoreLinkedIn({
+          hasUrl: /linkedin\.com\/in\//i.test(url) && !/\d{6,}/.test(url),
+          headline: inputs.headline.value,
+          summary: inputs.summary.value,
+          experienceCount: parseInt(inputs.expCount.value, 10) || 0,
+          skillsCount: parseInt(inputs.skillCount.value, 10) || 0,
+          hasPhoto: inputs.photo.checked,
+          recommendations: 0,
+        });
+        scoreEl.textContent = `${r.score}/100`;
+        scoreEl.className = `lqr-status-badge lqr-status-badge--${r.score >= 70 ? 'live' : r.score >= 40 ? 'redirect' : 'dead'}`;
+        list.innerHTML = '';
+        for (const c of r.checks) {
+          const row = createElement('div', '', { class: 'lqr-link-url-row' });
+          const dot = createElement('span', c.pass ? '✅ ' : '⬜ ', {});
+          row.appendChild(dot);
+          const txt = createElement('span', `${c.label} — ${c.hint}`, { class: 'lqr-link-url' });
+          txt.style.whiteSpace = 'normal';
+          row.appendChild(txt);
+          list.appendChild(row);
+        }
+      } catch { /* advisory only */ }
+    };
+    refresh();
+    return card;
   }
 
   // ==================== LINK FORM ====================
