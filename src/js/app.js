@@ -63,9 +63,10 @@ class CareerCanvasApp {
       const hasAuth = localStorage.getItem('cc_auth_guest') === 'true' || authState.isAuthenticated();
 
       if (!hasAuth) {
-        // No session — force signup (guard also enforces this for deep links)
+        // No session — first visit lands on the welcome page
+        // (guard also enforces this for deep links)
         this.router.start();
-        this.router.navigate('/signup');
+        this.router.navigate('/welcome');
       } else {
         const onboardingDone = localStorage.getItem('onboardingComplete');
         if (!onboardingDone) {
@@ -613,7 +614,7 @@ class CareerCanvasApp {
       const hasAccess = localStorage.getItem('cc_auth_guest') === 'true' || authState.isAuthenticated();
 
       if (!hasAccess && !publicRoutes.includes(toPath)) {
-        this.router.navigate('/signup');
+        this.router.navigate('/welcome');
         return false;
       }
 
@@ -1003,6 +1004,32 @@ class CareerCanvasApp {
         btn.focus();
       }
     });
+  }
+
+  /**
+   * Post-auth entry point: new users (no documents, wizard not done) get the
+   * setup wizard first, everyone else goes to the intended page / dashboard.
+   * This is the welcome → wizard → dashboard chain.
+   */
+  async enterAfterAuth(intended) {
+    let hasDocuments = false;
+    try {
+      const docs = await this.db.getAll('documents');
+      hasDocuments = docs && docs.length > 0;
+    } catch (e) { /* ignore */ }
+
+    if (hasDocuments) {
+      localStorage.setItem('onboardingComplete', 'true');
+      this.router.navigate(intended || '/dashboard');
+      return;
+    }
+    if (!localStorage.getItem('onboardingComplete')) {
+      // Dashboard underneath, setup wizard overlays on top.
+      this.router.navigate('/dashboard');
+      this.showOnboarding();
+      return;
+    }
+    this.router.navigate(intended || '/dashboard');
   }
 
   showOnboarding() {

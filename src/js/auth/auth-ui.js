@@ -138,10 +138,8 @@ export class AuthUI {
   // ==================== LANDING PAGE (redirects to consolidated login) ====================
 
   async renderLanding() {
-    // Consolidated: /welcome now renders the same split-screen as /login
-    return this.renderLogin();
-    /* Original landing page code preserved below for reference but no longer executed */
-    /* eslint-disable no-unreachable */
+    // First-visit landing: hero + CTAs (signup / sign in / guest).
+    // Authenticated users never land here (app.js routes them to dashboard).
     this.container = createElement('div', '', { class: 'welcome-page' });
     this.container.setAttribute('role', 'main');
     this.container.setAttribute('aria-label', 'Welcome to CareerCanvas');
@@ -184,43 +182,30 @@ export class AuthUI {
     title.innerHTML = 'Welcome to <span class="welcome-title-accent">CareerCanvas</span>';
     hero.appendChild(title);
 
-    const subtitle = createElement('p', 'Build professional resumes, CVs, and cover letters — entirely in your browser. No sign-up required.', { class: 'welcome-subtitle' });
+    const subtitle = createElement('p', 'Free forever. Create an account, sign in, or continue as a guest — your data stays in your browser.', { class: 'welcome-subtitle' });
     hero.appendChild(subtitle);
 
-    // CTA buttons
+    // CTA buttons: signup first, then sign in, then guest
     const cta = createElement('div', '', { class: 'welcome-cta' });
 
-    const guestBtn = createElement('button', '', { class: 'welcome-btn welcome-btn--primary', type: 'button' });
-    guestBtn.innerHTML = '<span class="welcome-btn-icon">&#10132;</span> Get Started Free';
-    this.addListener(guestBtn, 'click', async () => {
-      authService.continueAsGuest();
-      const onboardingDone = localStorage.getItem('onboardingComplete');
-
-      // Check if user already has documents — skip wizard
-      let hasDocuments = false;
-      try {
-        if (window.CC?.db) {
-          const docs = await window.CC.db.getAll('documents');
-          hasDocuments = docs && docs.length > 0;
-        }
-      } catch (e) { /* ignore */ }
-
-      if (hasDocuments) {
-        localStorage.setItem('onboardingComplete', 'true');
-        if (window.CC?.router) window.CC.router.navigate('/dashboard');
-      } else if (!onboardingDone && window.CC?.app?.showOnboarding) {
-        window.CC.app.showOnboarding();
-      } else {
-        if (window.CC?.router) window.CC.router.navigate('/dashboard');
-      }
-    });
-    cta.appendChild(guestBtn);
+    const signupBtn = createElement('button', '', { class: 'welcome-btn welcome-btn--primary', type: 'button' });
+    signupBtn.innerHTML = '<span class="welcome-btn-icon">&#10132;</span> Get Started Free';
+    this.addListener(signupBtn, 'click', () => { if (window.CC?.router) window.CC.router.navigate('/signup'); });
+    cta.appendChild(signupBtn);
 
     if (authAvailable) {
       const signInBtn = createElement('button', 'Sign In to Your Account', { class: 'welcome-btn welcome-btn--outline', type: 'button' });
       this.addListener(signInBtn, 'click', () => { if (window.CC?.router) window.CC.router.navigate('/login'); });
       cta.appendChild(signInBtn);
     }
+
+    const guestBtn = createElement('button', 'Continue as Guest', { class: 'welcome-btn welcome-btn--outline', type: 'button' });
+    this.addListener(guestBtn, 'click', async () => {
+      authService.continueAsGuest();
+      if (window.CC?.app?.enterAfterAuth) await window.CC.app.enterAfterAuth();
+      else if (window.CC?.router) window.CC.router.navigate('/dashboard');
+    });
+    cta.appendChild(guestBtn);
 
     hero.appendChild(cta);
 
