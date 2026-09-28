@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased — signed-in delete resurrected by cloud sync (2026-09-28)
+- fix: documents deleted while signed in came straight back — `deleteDocument()` fired `deleteCloudDocument(id)` without awaiting it, then `loadDocuments()` → `syncWithCloud()` re-fetched the still-present cloud row and re-inserted it locally (confirmed live: `public.user_documents` holds mirrored rows). The cloud delete is now `await`ed before the reload in both `dashboard.js` and the global `document:delete` handler (`app.js`).
+- test: `tests/unit/dashboard-delete-order.test.js` (2 tests: cloud delete resolves before reload; cancel path is a no-op).
+- Verified: `LINT OK`, vitest `271/271` pass.
+- To remove existing zombie copies: redeploy, sign in, delete once — they now stay deleted.
+
 ## Unreleased — github MCP + proper dashboard delete (2026-09-28)
 - chore: added the official GitHub remote MCP server to `opencode.json` (`https://api.githubcopilot.com/mcp/`, PAT via `{env:GITHUB_PERSONAL_ACCESS_TOKEN}`, `oauth: false` per GitHub's opencode guide). No secrets in config. Requires: create a classic PAT (repo scope), set the env var, then quit + restart opencode (config isn't hot-reloaded).
 - fix: dashboard delete is now a real delete — it previously removed only the `documents` row, orphaning version snapshots (`snapshots.documentId`), saved skill matrices (`skillsMatrices.documentId`) and JD-match analyses (`matchAnalyses.resumeId`), gave zero feedback, and bypassed the `document:delete` event other modules rely on. New shared `deleteDocumentAndRelated(db, id)` (`dashboard.js`, index fast-path + full-scan fallback for pre-index DBs, all steps best-effort) used by both the dashboard flow and the global `document:delete` handler (`app.js`); dashboard emits the event after deleting, and the global handler's toast is now the single success feedback. Application-tracker entries are intentionally kept (job-search history).

@@ -1315,7 +1315,9 @@ class CareerCanvasApp {
         await deleteDocumentAndRelated(this.db, id);
         try {
           const { deleteCloudDocument } = await import('./auth/cloud-store.js');
-          deleteCloudDocument(id); // best-effort (no-op for guests/offline)
+          // Awaited: a later cloud sync must not see the row still present
+          // and re-insert it locally (resurrected document).
+          await deleteCloudDocument(id); // best-effort (no-op for guests/offline)
         } catch (e) { /* cloud mirror optional */ }
         this.toast.show('Document deleted', 'info');
       } catch (e) {

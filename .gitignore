@@ -9,3 +9,4 @@ Thumbs.db
 .local-backup/
 # Local-dev Supabase override (real keys, never commit)
 src/js/auth/local-config.js
+.vercel

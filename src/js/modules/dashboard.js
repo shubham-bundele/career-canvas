@@ -1111,7 +1111,10 @@ export class Dashboard {
     if (!confirmed) return;
     try {
       await deleteDocumentAndRelated(this.db, id);
-      deleteCloudDocument(id); // best-effort cloud mirror (no-op for guests/offline)
+      // AWAIT the cloud delete before reloading: loadDocuments() triggers
+      // syncWithCloud(), which re-inserts any still-present cloud row locally.
+      // Fire-and-forget here resurrects the just-deleted document (zombie).
+      await deleteCloudDocument(id); // best-effort mirror (no-op for guests/offline)
       await this.loadDocuments();
       // Notify other modules + the global handler (which toasts). The global
       // handler's own delete is a harmless no-op on the already-gone records.
