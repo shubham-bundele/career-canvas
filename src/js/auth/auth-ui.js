@@ -617,11 +617,12 @@ export class AuthUI {
     card.appendChild(form);
     card.appendChild(this._divider('or'));
 
-    const linkRow = createElement('div', '', { class: 'auth-glass-links' });
-    const loginLink = createElement('a', 'Already have an account? Sign in', { class: 'auth-glass-link' });
-    loginLink.setAttribute('href', '#/login');
-    linkRow.appendChild(loginLink);
-    card.appendChild(linkRow);
+    const loginBtn = createElement('button', 'Already have an account? Sign in', { class: 'welcome-btn welcome-btn--outline', type: 'button' });
+    this.addListener(loginBtn, 'click', () => {
+      if (window.CC?.router) window.CC.router.navigate('/login');
+      else window.location.hash = '#/login';
+    });
+    card.appendChild(loginBtn);
 
     const guestBtn = createElement('button', 'Continue as Guest', { class: 'welcome-btn welcome-btn--outline', type: 'button', style: 'margin-top: var(--space-3)' });
     this.addListener(guestBtn, 'click', async () => {

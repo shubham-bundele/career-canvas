@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased — signup "Sign in" link is now a button (2026-09-28)
+- ui: "Already have an account? Sign in" on `#/signup` was a small text link users missed — now a full-width `welcome-btn--outline` button like "Continue as Guest" (router navigate to `/login`). Verified live locally via Playwright (renders, navigates, no console errors). (`src/js/auth/auth-ui.js`)
+- Verified: `LINT OK`.
+
 ## Unreleased — signed-in delete resurrected by cloud sync (2026-09-28)
 - fix: documents deleted while signed in came straight back — `deleteDocument()` fired `deleteCloudDocument(id)` without awaiting it, then `loadDocuments()` → `syncWithCloud()` re-fetched the still-present cloud row and re-inserted it locally (confirmed live: `public.user_documents` holds mirrored rows). The cloud delete is now `await`ed before the reload in both `dashboard.js` and the global `document:delete` handler (`app.js`).
 - test: `tests/unit/dashboard-delete-order.test.js` (2 tests: cloud delete resolves before reload; cancel path is a no-op).
