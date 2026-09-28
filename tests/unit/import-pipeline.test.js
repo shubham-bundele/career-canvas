@@ -28,6 +28,17 @@ describe('isPageArtifact + cleanExtractedText', () => {
     expect(isPageArtifact('Page 2')).toBe(true);
     expect(isPageArtifact('Work Experience')).toBe(false);
   });
+  it('never merges the header block (name/title/contact stay separate)', () => {
+    // Regression: "Jane Doe"+"Senior Engineer"+"jane@..." were joined into
+    // one line, which made the name parser see "@" and drop the name.
+    const { text, stats } = cleanExtractedText('Jane Doe\nSenior Engineer\njane@example.com\nBuilt distributed systems for 5 years.');
+    expect(text.split('\n').slice(0, 3)).toEqual(['Jane Doe', 'Senior Engineer', 'jane@example.com']);
+    expect(stats.linesJoined).toBe(0);
+  });
+  it('still rejoins mid-text PDF column fragments', () => {
+    const { text } = cleanExtractedText('EXPERIENCE\nUser\nAcceptance Testing (UAT)\nDid work.');
+    expect(text).toContain('User Acceptance Testing (UAT)');
+  });
 });
 
 describe('canonicalizeSection', () => {

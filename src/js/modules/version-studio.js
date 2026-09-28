@@ -532,7 +532,6 @@ export class VersionStudio {
           for (const old of excess) {
             try { await this.db.delete(STORES.SNAPSHOTS, old.id); } catch { /* keep going */ }
           }
-          if (excess.length > 0) console.log(`Pruned ${excess.length} old snapshots for ${this.selectedDocId}`);
         }
       } catch (err) {
         console.warn('Snapshot retention prune failed:', err);

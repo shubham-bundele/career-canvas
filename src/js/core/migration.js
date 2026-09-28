@@ -86,8 +86,6 @@ export async function runMigrations(data) {
     return data;
   }
 
-  console.log(`Migrating data from version ${startVersion} to ${targetVersion}`);
-
   let migratedData = data;
   const appliedMigrations = [];
 
@@ -97,8 +95,6 @@ export async function runMigrations(data) {
 
     if (migrationIndex < migrations.length && migrations[migrationIndex]) {
       try {
-        console.log(`Applying migration: ${version} -> ${version + 1}`);
-
         migratedData = await migrations[migrationIndex](migratedData);
 
         appliedMigrations.push({
@@ -143,8 +139,6 @@ export async function runMigrations(data) {
     appliedMigrations,
     success: true
   });
-
-  console.log('Migration completed successfully');
 
   return migratedData;
 }
@@ -375,18 +369,11 @@ export function pruneBackups(keepCount = 5) {
 export async function initMigrations() {
   const currentVersion = getCurrentVersion();
 
-  console.log(`Current migration version: ${currentVersion}`);
-  console.log(`Target schema version: ${SCHEMA_VERSION}`);
-
   if (currentVersion === 0) {
     // First time setup
     setCurrentVersion(SCHEMA_VERSION);
-    console.log('First time setup - migration version set to', SCHEMA_VERSION);
   } else if (needsMigration()) {
-    console.log('Migration needed');
     eventBus.emit('migration:needed', { currentVersion, targetVersion: SCHEMA_VERSION });
-  } else {
-    console.log('No migration needed');
   }
 }
 

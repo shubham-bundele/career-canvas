@@ -37,8 +37,22 @@ export default async function handler(req, res) {
   if (rateLimited()) return res.status(429).json({ error: 'Rate limited — wait a moment and try again.' });
 
   try {
-    const { resumeText, resumeFile, resumeMimeType, mode, context } = req.body || {};
+    let { resumeText, resumeFile, resumeMimeType, mode, context } = req.body || {};
+    // Native file path: the server cannot extract PDF/image/DOCX bytes, so
+    // reject binaries loudly (callers fall back to local text extraction)
+    // instead of parsing placeholder text into hallucinated data. Plain-text
+    // files are base64-decoded and parsed as text.
+    if (!resumeText && resumeFile) {
+      if (/^text\/|json|csv|markdown|xml|rtf/i.test(resumeMimeType || '')) {
+        try {
+          resumeText = Buffer.from(resumeFile, 'base64').toString('utf-8');
+        } catch { /* fall through to the missing-text error */ }
+      } else {
+        return res.status(400).json({ error: 'Binary file parsing is not supported by the AI service. Extract the text locally first.' });
+      }
+    }
     if (!resumeText && !resumeFile) return res.status(400).json({ error: 'Missing resumeText or resumeFile' });
+    if (!resumeText) return res.status(400).json({ error: 'Missing resumeText or resumeFile' });
     if (resumeText && resumeText.length > MAX_INPUT_LENGTH) {
       return res.status(400).json({ error: `Resume text too long (max ${MAX_INPUT_LENGTH} chars)` });
     }

@@ -122,6 +122,21 @@ export const SKILL_ALIASES = {
   'apache kafka': ['kafka'],
   'rabbitmq': ['rabbit mq'],
   'apache spark': ['spark'],
+  'apache airflow': ['airflow'],
+  'snowflake': [],
+  'databricks': [],
+  'dbt': [],
+  'langchain': [],
+  'llamaindex': ['llama-index', 'llama index'],
+  'hugging face': ['huggingface', 'hf'],
+  'zustand': [],
+  'redux': ['redux toolkit', 'rtk'],
+  'svelte': ['sveltekit', 'svelte.js'],
+  'astro': [],
+  'prisma': ['prisma orm'],
+  'drizzle': ['drizzle orm'],
+  'supabase': [],
+  'vitest': [],
   'hadoop': [],
   'aws lambda': ['lambda'],
   'amazon s3': ['s3'],
@@ -153,27 +168,29 @@ export const SKILL_CATEGORIES = {
     'bootstrap', 'tailwind css'
   ],
   'Library': [
-    'jquery', 'lodash', 'axios', 'redux', 'mobx', 'rxjs', 'd3.js',
+    'jquery', 'lodash', 'axios', 'redux', 'zustand', 'mobx', 'rxjs', 'd3.js',
     'three.js', 'socket.io', 'pandas', 'numpy', 'scikit-learn',
-    'tensorflow', 'pytorch', 'keras'
+    'tensorflow', 'pytorch', 'keras', 'langchain', 'llamaindex', 'hugging face',
+    'prisma', 'drizzle'
   ],
   'Database': [
     'postgresql', 'mysql', 'mongodb', 'redis', 'elasticsearch', 'dynamodb',
     'sqlite', 'oracle', 'sql server', 'cassandra', 'couchdb', 'neo4j',
-    'firebase', 'supabase'
+    'firebase', 'supabase', 'snowflake'
   ],
   'Cloud Platform': [
     'amazon web services', 'microsoft azure', 'google cloud platform',
     'heroku', 'vercel', 'netlify', 'digitalocean', 'linode',
-    'cloudflare', 'aws lambda', 'amazon s3', 'amazon ec2', 'amazon rds'
+    'cloudflare', 'aws lambda', 'amazon s3', 'amazon ec2', 'amazon rds', 'databricks'
   ],
   'DevOps Tool': [
     'docker', 'kubernetes', 'terraform', 'ansible', 'puppet', 'chef',
     'jenkins', 'github actions', 'gitlab ci', 'circleci', 'travis ci',
-    'ci/cd', 'nginx', 'apache', 'prometheus', 'grafana', 'datadog'
+    'ci/cd', 'nginx', 'apache', 'prometheus', 'grafana', 'datadog',
+    'apache airflow', 'dbt'
   ],
   'Testing Tool': [
-    'jest', 'mocha', 'cypress', 'playwright', 'selenium', 'junit',
+    'jest', 'vitest', 'mocha', 'cypress', 'playwright', 'selenium', 'junit',
     'pytest', 'rspec', 'jasmine', 'karma', 'enzyme', 'testing library',
     'postman', 'swagger'
   ],

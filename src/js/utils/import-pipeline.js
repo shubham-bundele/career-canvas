@@ -43,15 +43,20 @@ export function cleanExtractedText(rawText) {
     const bulleted = line.match(/^([\-*▪▸►⦁◦‣·o>]+)\s+(.*)$/);
     if (bulleted) line = `• ${bulleted[2].trim()}`;
     // Rejoin wrapped continuation lines.
+    // Never treat a contact line (email/url) as a continuation, and never
+    // glue anything onto the first line (the name candidate): both destroy
+    // the name/contact structure the parser reads next.
+    const isContactLike = (s) => s.includes('@') || /https?:|www\./i.test(s);
     const prev = lines[lines.length - 1];
     const isWrappedLower = prev && !/^[•\d]/.test(prev) && !/[.:;!?]$/.test(prev)
       && /^[a-z]/.test(line) && line.length < 80 && prev.length < 100
-      && !matchHeaderFuzzy(line) && !matchHeaderFuzzy(prev);
+      && !isContactLike(line) && !matchHeaderFuzzy(line) && !matchHeaderFuzzy(prev);
     // Also rejoin single-word fragments like "User" + "Acceptance Testing (UAT)"
     // that were split by PDF column width — short prev, capitalized continuation.
-    const isFragmented = prev && !/^[•\d]/.test(prev) && !/[.:;!?]$/.test(prev)
+    const isFragmented = prev && lines.length > 1 && !/^[•\d]/.test(prev) && !/[.:;!?]$/.test(prev)
       && prev.split(/\s+/).length <= 2 && prev.length <= 12 && prev.length > 1
       && /^[A-Z]/.test(line) && line.length < 80 && line.split(/\s+/).length >= 2
+      && !isContactLike(line) && !isContactLike(prev)
       && !matchHeaderFuzzy(line) && !matchHeaderFuzzy(prev)
       && !line.includes(':') && !prev.includes(':');
     if (isWrappedLower || isFragmented) {
@@ -85,6 +90,8 @@ export function canonicalizeSection(title, type) {
     experience: 'Professional Experience', summary: 'Professional Summary',
     skills: 'Skills', education: 'Education', projects: 'Projects',
     certifications: 'Certifications', languages: 'Languages', awards: 'Awards',
+    volunteer: 'Volunteer Experience', publications: 'Publications & Research',
+    interests: 'Interests & Activities', references: 'References'
   };
   if (type && pretty[type]) return { title: pretty[type], type };
   return { title: title || 'General', type: type || 'custom' };

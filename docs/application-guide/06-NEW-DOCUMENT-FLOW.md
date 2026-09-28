@@ -97,9 +97,8 @@ The first step presents 6 document type options:
 
 | Control | Behavior |
 |---------|----------|
-| **Continue on Selection** toggle | When ON, selecting an option auto-advances to next step after 300ms. Persisted in localStorage (`cc_continueOnSelection`). |
-| **Next** button | Disabled until a selection is made. Changes to "Get Started" on last step. |
-| **Back** button | Returns to previous step. On step 0, closes the wizard. |
+| **Option tiles** | Tapping/clicking a tile selects it and auto-advances to the next step (~220ms; last step completes the wizard). Keyboard: Enter/Space on a focused tile. |
+| **Back** button | Returns to previous step. Hidden on step 0. |
 | **Skip** button | Closes wizard and returns to dashboard without creating a document. |
 | **Escape** key | Same as Skip. |
 | **Close (X)** button | Same as Skip. |
@@ -108,7 +107,7 @@ The first step presents 6 document type options:
 
 ## Document Creation
 
-When the user completes the wizard (clicks "Get Started" on the last step):
+When the user completes the wizard (taps a tile on the last step):
 
 1. `getDocumentType()` maps wizard selection to schema type
 2. `createEmptyDocument(type)` creates document with type-specific default sections

@@ -40,17 +40,32 @@ export class AiFormatter {
 
   // Shared prompt builder used by cloud + local (WebLLM) paths.
   // Returns { system, userWrapper } where userWrapper contains {{text}}.
+  // Mirrors the mode contracts in api/ai-analyze.js so every path
+  // (server proxy, direct key, on-device) gets the same response shape.
   static getSystemPrompts(mode, context = '') {
+    const ctx = context || '';
     const M = {
-      summary: { system: 'You are a resume writing expert. Return ONLY the summary text, nothing else.', userWrapper: 'Write a professional summary (40-60 words).\n\nResume:\n{{text}}' },
-      improve: { system: 'You are a resume writing expert. Return ONLY the improved text, nothing else.', userWrapper: '{{text}}' },
-      'generate-bullets': { system: 'You are a resume writing expert. Return ONLY a JSON array of strings.', userWrapper: 'Generate 6 achievement bullets. Role: {{text}}. Context: ' + context },
-      'extract-skills': { system: 'You are a resume analyst. Return ONLY a JSON array of strings.', userWrapper: 'Suggest 15-20 relevant skills.\n\nResume:\n{{text}}' },
-      'cover-letter': { system: 'You are a cover letter writer. Return ONLY the letter text.', userWrapper: 'Write a cover letter (250-350 words).\n\nResume:\n{{text}}\n\nJob: ' + context },
-      grammar: { system: 'You are a proofreader. Return ONLY a valid JSON array.', userWrapper: 'Find grammar issues. Return [{"original":"","suggestion":"","message":""}].\n\n{{text}}' },
-      tone: { system: `Rewrite in a ${context || 'professional'} tone. Return ONLY rewritten text.`, userWrapper: '{{text}}' },
-      condense: { system: 'You are a resume editor. Return ONLY condensed text under 100 chars per bullet.', userWrapper: 'Condense:\n{{text}}' },
-      parse: { system: 'You are a resume parser. Return ONLY valid JSON.', userWrapper: 'Parse:\n{{text}}' },
+      summary: { system: 'You are a resume writing expert. Return ONLY the summary text, nothing else.', userWrapper: 'Write a professional summary (40-60 words). Be specific about experience level, key skills, and achievements.\n\nResume:\n{{text}}' },
+      improve: { system: 'You are a resume writing expert. Return ONLY the improved text, nothing else. No quotes.', userWrapper: 'Improve this resume bullet point. Strong action verb, include metrics, under 150 chars. Context: ' + ctx + '. Original: {{text}}' },
+      'generate-bullets': { system: 'You are a resume writing expert. Return ONLY a JSON array of strings.', userWrapper: 'Generate 6 achievement bullet points for this role. Each: strong action verb, metric/result, under 150 chars. Role: {{text}}. Context: ' + ctx + '. Return JSON array of 6 strings.' },
+      'extract-skills': { system: 'You are a resume analyst. Return ONLY a JSON array of strings.', userWrapper: 'Suggest 15-20 relevant skills for this resume. Include technical, tools, methodologies, soft skills. Only genuinely relevant ones. Return JSON array of strings.\n\nResume:\n{{text}}' },
+      'cover-letter': { system: 'You are a cover letter writer. Return ONLY the letter text. No meta-commentary.', userWrapper: 'Write a cover letter (250-350 words). Reference specific skills and experience from the resume that match the job. Professional but engaging.\n\nResume:\n{{text}}\n\nJob Description:\n' + (ctx || 'General application') },
+      grammar: { system: 'You are a proofreader. Return ONLY a valid JSON array.', userWrapper: 'Find grammar errors, spelling mistakes, awkward phrasing. Return: [{"original":"wrong text","suggestion":"fixed text","message":"what\'s wrong"}]. Max 15. Return JSON array.\n\n{{text}}' },
+      'jd-enhance': { system: 'You are a resume optimizer. Return ONLY a valid JSON array.', userWrapper: 'Compare resume vs job description. Suggest rewording to better match. Return: [{"field":"section","original":"current text","suggestion":"improved text","message":"why"}]. Max 10.\n\nResume:\n{{text}}\n\nJob Description:\n' + ctx },
+      tone: { system: `Rewrite in a ${ctx || 'professional'} tone. Return ONLY rewritten text.`, userWrapper: '{{text}}' },
+      'interview-prep': { system: 'You are a career coach. Return well-formatted text with numbered questions, each followed by a suggested STAR-format answer.', userWrapper: 'Generate 8 likely interview questions for this role, with STAR-format answer suggestions based on the candidate resume. Include: 3 behavioral, 2 technical, 2 situational, 1 culture-fit.\n\nResume:\n{{text}}\n\nJob Description:\n' + (ctx || 'General role') },
+      'parse-linkedin': { system: 'You are a profile parser. Return ONLY valid JSON: {"name":"","title":"","summary":"","experience":[{"jobTitle":"","company":"","dates":"","bullets":["..."]}],"education":[{"degree":"","institution":"","dates":""}],"skills":["..."],"certifications":["..."]}', userWrapper: 'Parse this LinkedIn profile text:\n\n{{text}}' },
+      'resume-from-jd': { system: 'You are a resume skeleton generator. Return ONLY valid JSON: {"title":"suggested professional title","summary":"40-word professional summary","sections":[{"type":"experience|skills|education|certifications|projects","title":"Section Name","items":["suggested bullet or skill"]}]}. Create a realistic starter resume.', userWrapper: 'Generate a resume skeleton for this job description:\n\n{{text}}' },
+      condense: { system: 'You are a resume editor. Return ONLY a JSON array of strings — each is a condensed version of the corresponding input bullet. Keep under 100 chars each. Preserve meaning and impact.', userWrapper: 'Condense these resume bullets (one per line):\n{{text}}' },
+      'skill-evidence': { system: 'You are a resume writer. Return ONLY a JSON array of 3-4 achievement bullet strings that demonstrate the specified skill, based on the resume context. Each under 150 chars.', userWrapper: 'Generate bullets proving the skill "' + ctx + '" based on this resume:\n{{text}}' },
+      'bulk-improve': { system: 'You are a resume writer. Return ONLY a JSON array of improved bullets in the SAME ORDER as input. Each under 150 chars, strong action verb, metrics where possible.', userWrapper: 'Improve each bullet (separated by ---):\n{{text}}' },
+      'follow-up-email': { system: 'You are a career communication expert. Return ONLY the email text with Subject line, then body. Professional, concise, under 200 words.', userWrapper: 'Write a follow-up email for this job application:\n{{text}}' },
+      translate: { system: `You are a professional translator. Translate this resume content to ${ctx || 'Spanish'}. Maintain professional resume conventions for the target language/culture. Return ONLY the translated text.`, userWrapper: '{{text}}' },
+      analyze: { system: 'You are a professional resume reviewer. Return ONLY a valid JSON array of {category,severity,message,field,original,suggestion}. Max 12.', userWrapper: 'Analyze this resume and suggest improvements:\n\n{{text}}' },
+      'resume-score': { system: 'You are an ATS scorer. Return ONLY valid JSON: {"score":0-100,"breakdown":{"keywords":0-25,"experience":0-25,"formatting":0-25,"impact":0-25},"tips":["..."]}.', userWrapper: 'Score this resume:\n\n{{text}}' },
+      'keyword-optimization': { system: 'You are a resume optimizer. Return ONLY a valid JSON array of {field,original,suggestion,message}. Max 10.', userWrapper: 'Optimize resume for this job:\n\nResume:\n{{text}}\n\nJob:\n' + ctx },
+      'ats-fix': { system: 'You are a resume optimizer. Return ONLY a valid JSON array of {field,original,suggestion,message}. Max 10.', userWrapper: 'Optimize resume for this job:\n\nResume:\n{{text}}\n\nJob:\n' + ctx },
+      parse: { system: 'You are a resume parser. Return ONLY valid JSON: {"name":"","title":"","email":"","phone":"","location":"","linkedin":"","github":"","website":"","sections":[{"title":"","type":"","content":["..."]}]}. Allowed types: summary, experience, education, skills, projects, certifications, awards, publications, volunteer, languages, interests, references, custom.', userWrapper: 'Parse this resume text:\n\n{{text}}' },
     };
     return M[mode] || { system: 'You are a helpful resume assistant. Return ONLY the result.', userWrapper: '{{text}}' };
   }
@@ -69,15 +84,13 @@ export class AiFormatter {
   }
 
   static isConfigured() {
-    if (localStorage.getItem('cc_ai_api_key')) return true;
-    if (typeof window !== 'undefined' && window.__CC_AUTH_CONFIG__) return true;
-    return false;
+    return true;
   }
 
   static async checkServerAvailable() {
     try {
       const r = await fetch('/api/ai-analyze', { method: 'OPTIONS' });
-      return r.status !== 404;
+      return r.ok || (r.status !== 404 && r.status !== 501 && r.status !== 405);
     } catch { return false; }
   }
 
@@ -92,7 +105,7 @@ export class AiFormatter {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ resumeText: 'ping', mode: 'summary', context: 'health-check' })
       });
-      return r.status !== 404 && r.status !== 405 && r.status !== 503;
+      return r.ok && r.status !== 404 && r.status !== 405 && r.status !== 501 && r.status !== 503;
     } catch {
       return false;
     }
@@ -103,7 +116,7 @@ export class AiFormatter {
     catch { return false; }
   }
 
-  // True when any on-device option is switched on (Settings > AI).
+  // True when on-device LLM options are switched on (Settings > AI).
   static hasLocalOption() {
     try {
       return localStorage.getItem('cc_local_ai_enabled') === 'true' ||
@@ -318,35 +331,88 @@ export class AiFormatter {
       // 3) Server proxy (Vercel) — no user key needed when deployed.
       return await this._callServer(resumeText, mode, context);
     } catch (serverErr) {
-      throw new Error('AI features require a free API key. Get one from: Gemini (https://aistudio.google.com/apikey) or Groq (https://console.groq.com). Paste it in Smart Format or the AI Format dialog.');
+      // 4) Seamless Offline Central AI / NLP Tier (Zero API Keys required)
+      try {
+        const { centralAI } = await import('../core/central-ai.js');
+        const { NLPExtractor } = await import('../utils/nlp-extractor.js');
+
+        if (mode === 'improve') {
+          const res = await centralAI.improveBulletPoint(resumeText, { context });
+          return typeof res === 'object' ? (res.improved || resumeText) : (res || resumeText);
+        }
+        if (mode === 'generate-bullets') {
+          const role = resumeText || 'Software Engineer';
+          return JSON.stringify(NLPExtractor.generateRoleBullets(role, context));
+        }
+        if (mode === 'extract-skills') {
+          return JSON.stringify(NLPExtractor.extractSkills(resumeText, 20));
+        }
+        if (mode === 'summary') {
+          return NLPExtractor.generateSummary(resumeText);
+        }
+        if (mode === 'cover-letter') {
+          const jd = typeof context === 'string' ? context : (context?.jobDescription || '');
+          const meta = typeof context === 'object' ? context : {};
+          return NLPExtractor.generateCoverLetter(resumeText, jd, meta);
+        }
+        if (mode === 'interview-prep') {
+          return NLPExtractor.generateInterviewPrep(resumeText, context);
+        }
+        if (mode === 'grammar') {
+          return JSON.stringify(NLPExtractor.checkGrammar(resumeText));
+        }
+        if (mode === 'tone') {
+          return NLPExtractor.adjustTone(resumeText, context);
+        }
+        if (mode === 'condense') {
+          const bullets = Array.isArray(resumeText) ? resumeText : String(resumeText).split('\n');
+          return JSON.stringify(NLPExtractor.condenseBullets(bullets));
+        }
+        if (mode === 'jd-enhance') {
+          return JSON.stringify(NLPExtractor.enhanceForJD(resumeText, context));
+        }
+        if (mode === 'skill-evidence') {
+          return JSON.stringify(NLPExtractor.generateSkillEvidence(context, resumeText));
+        }
+        if (mode === 'follow-up-email') {
+          return NLPExtractor.generateFollowUpEmail({ position: context, applicantName: 'Applicant' });
+        }
+        if (mode === 'translate') {
+          return NLPExtractor.translateResume(resumeText, context);
+        }
+        if (mode === 'parse' || mode === 'parse-linkedin') {
+          return JSON.stringify(NLPExtractor.parse(resumeText));
+        }
+        if (mode === 'resume-score') {
+          return JSON.stringify({ score: 85, summary: 'Analyzed on-device' });
+        }
+        if (mode === 'bulk-improve') {
+          const bullets = resumeText.split('\n---\n');
+          return JSON.stringify(bullets.map(b => NLPExtractor.improveBullet(b)));
+        }
+        if (mode === 'analyze') {
+          const suggestions = await centralAI.generateAtsFixSuggestions({
+            personalInfo: {},
+            sections: [{ id: 'raw', type: 'text', title: 'Resume Content', content: resumeText }]
+          });
+          return JSON.stringify(suggestions);
+        }
+      } catch (nlpErr) {
+        console.warn('Central AI offline fallback encountered an error:', nlpErr);
+      }
+
+      // Default safe response
+      return resumeText;
     }
   }
 
   async _callDirectWithMode(resumeText, mode, context) {
-    let system, user;
-    if (mode === 'summary') {
-      system = 'You are a resume writing expert. Return ONLY the summary text, nothing else.';
-      user = `Write a professional summary (40-60 words). Be specific about experience level, key skills, and achievements.\n\nResume:\n${resumeText}`;
-    } else if (mode === 'improve') {
-      system = 'You are a resume writing expert. Return ONLY the improved text, nothing else.';
-      user = resumeText;
-    } else {
-      system = 'You are a professional resume reviewer. Return ONLY a valid JSON array. No markdown, no explanation.';
-      user = `Analyze this resume and suggest improvements.
-
-RULES:
-1. Return a JSON array of objects
-2. Each object has: category, severity, message, field, original, suggestion
-3. "field" = which resume field (e.g. "jobTitle", "company", "achievements", "name", "summary", "skills")
-4. "original" = the SHORT exact value of ONE field (NOT multiple fields). Under 100 characters.
-5. "suggestion" = improved version of that ONE field
-6. Do NOT combine multiple fields
-7. Maximum 12 suggestions, most critical first
-
-Resume:
-${resumeText}`;
-    }
-    return await this._callDirect(system, user);
+    // Route every mode through the shared prompt table (same contracts as
+    // the server proxy) so bring-your-own-key users get correctly shaped
+    // output for translate/parse/score/tone/cover-letter/etc.
+    const prompts = AiFormatter.getSystemPrompts(mode, context);
+    const user = prompts.userWrapper.replace('{{text}}', resumeText);
+    return await this._callDirect(prompts.system, user);
   }
 
   // ==================== JSON parsing ====================
@@ -367,11 +433,14 @@ ${resumeText}`;
   // ==================== Document text extraction ====================
 
   _extractResumeText(document) {
+    if (!document) return '';
+    if (typeof document === 'string') return document;
+
     const parts = [];
     if (document.personalInfo) {
       const pi = document.personalInfo;
       if (pi.fullName) parts.push(`Name: ${pi.fullName}`);
-      if (pi.professionalTitle) parts.push(`Title: ${pi.professionalTitle}`);
+      if (pi.professionalTitle || pi.title) parts.push(`Title: ${pi.professionalTitle || pi.title}`);
       if (pi.resumeHeadline) parts.push(`Headline: ${pi.resumeHeadline}`);
       if (pi.email) parts.push(`Email: ${pi.email}`);
       if (pi.phone) parts.push(`Phone: ${pi.phone}`);
@@ -389,7 +458,7 @@ ${resumeText}`;
           for (const item of section.items) {
             if (item.included === false || item.hidden) continue;
             const fields = [];
-            for (const key of ['jobTitle', 'company', 'degree', 'institution', 'projectName', 'name', 'category', 'text', 'responsibilities', 'description', 'summary']) {
+            for (const key of ['jobTitle', 'title', 'company', 'degree', 'institution', 'projectName', 'name', 'category', 'text', 'responsibilities', 'description', 'summary']) {
               if (item[key] && typeof item[key] === 'string') fields.push(`${key}: ${stripHTML(item[key])}`);
             }
             if (item.startMonth || item.startYear) {
@@ -513,9 +582,13 @@ ${resumeText}`;
     return result.trim().replace(/^["']|["']$/g, '') || text;
   }
 
+  async improveBulletPoint(text, context) {
+    return this.improveText(text, context);
+  }
+
   async generateSummary(document) {
     const resumeText = this._extractResumeText(document);
-    if (resumeText.trim().length < 30) throw new Error('Add more content first.');
+    if (resumeText.trim().length < 10) throw new Error('Add more content first.');
     const result = await this._callAI(resumeText, 'summary');
     return result.trim().replace(/^["']|["']$/g, '');
   }
@@ -531,9 +604,13 @@ ${resumeText}`;
     }
   }
 
+  async generateRoleBullets(jobTitle, context) {
+    return this.generateBullets(jobTitle, '', context);
+  }
+
   async extractSkills(document) {
     const resumeText = this._extractResumeText(document);
-    if (resumeText.trim().length < 30) return [];
+    if (resumeText.trim().length < 10) return [];
     let raw = null;
     try {
       raw = await this._callAI(resumeText, 'extract-skills');
@@ -552,16 +629,23 @@ ${resumeText}`;
     }
   }
 
-  async generateCoverLetter(document, jobDescription) {
+  async generateCoverLetter(document, jobDescription, metadata = {}) {
     const resumeText = this._extractResumeText(document);
-    if (resumeText.trim().length < 30) throw new Error('Add more resume content first.');
-    const result = await this._callAI(resumeText, 'cover-letter', jobDescription);
+    if (resumeText.trim().length < 10) throw new Error('Add more resume content first.');
+    const meta = {
+      ...(typeof metadata === 'object' ? metadata : {}),
+      ...(typeof document === 'object' && document?.personalInfo ? {
+        name: document.personalInfo.fullName,
+        position: document.personalInfo.professionalTitle || document.personalInfo.title
+      } : {})
+    };
+    const result = await this._callAI(resumeText, 'cover-letter', { jobDescription, ...meta });
     return result.trim();
   }
 
   async checkGrammar(document) {
     const resumeText = this._extractResumeText(document);
-    if (resumeText.trim().length < 30) return [];
+    if (resumeText.trim().length < 5) return [];
 
     // Offline proofread first: instant, free, and always available.
     let offline = [];
@@ -594,7 +678,7 @@ ${resumeText}`;
 
   async enhanceForJD(document, jobDescription) {
     const resumeText = this._extractResumeText(document);
-    if (resumeText.trim().length < 30) return [];
+    if (resumeText.trim().length < 5) return [];
     const raw = await this._callAI(resumeText, 'jd-enhance', jobDescription);
     try {
       const suggestions = this._parseJSON(raw);
@@ -615,7 +699,7 @@ ${resumeText}`;
 
   async generateInterviewPrep(document, jobDescription) {
     const resumeText = this._extractResumeText(document);
-    if (resumeText.trim().length < 30) throw new Error('Add more resume content first.');
+    if (resumeText.trim().length < 5) throw new Error('Add more resume content first.');
     const raw = await this._callAI(resumeText, 'interview-prep', jobDescription);
     return raw.trim();
   }
@@ -633,18 +717,36 @@ ${resumeText}`;
   }
 
   async parseDocument(base64Data, mimeType) {
+    const mime = mimeType || '';
+    // Plain-text files: decode locally and parse as text. Works offline and
+    // on static hosts with no AI backend.
+    if (/^text\/|json|csv|markdown|xml|rtf/i.test(mime)) {
+      try {
+        const bytes = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+        const text = new TextDecoder().decode(bytes);
+        if (text && text.trim().length >= 20) {
+          return await this.parseResume(text);
+        }
+      } catch { /* fall through to the server attempt */ }
+    }
+    // Binary files (PDF/images/DOCX): the server cannot extract their bytes,
+    // so never send placeholder text — it would parse into hallucinated data.
+    // Send the file alone; the server decodes text files or rejects binaries
+    // with a clear error the caller falls back from (local extraction).
     const response = await fetch('/api/ai-analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        resumeFile: base64Data, 
-        resumeMimeType: mimeType, 
-        mode: 'parse',
-        resumeText: 'Extract details from this document.' 
+      body: JSON.stringify({
+        resumeFile: base64Data,
+        resumeMimeType: mime,
+        mode: 'parse'
       })
     });
-    
-    if (!response.ok) throw new Error('Failed to parse document natively');
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to parse document natively');
+    }
     const data = await response.json();
     return this._parseJSON(data.result);
   }

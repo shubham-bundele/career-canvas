@@ -117,8 +117,16 @@ export class Router {
     if (!path.startsWith('/')) path = '/' + path;
 
     // Check guards
+    const hashBeforeGuards = window.location.hash;
     const canNavigate = await this.runGuards(path);
     if (!canNavigate) {
+      // A guard may have redirected on its own (e.g. auth gate navigates to
+      // /welcome). The hash change above proves it — restoring the old hash
+      // would clobber that redirect, so only restore when the hash is
+      // untouched.
+      if (window.location.hash !== hashBeforeGuards) {
+        return;
+      }
       // Restore previous hash
       if (this.currentRoute) {
         window.location.hash = '#' + this.currentRoute;

@@ -78,7 +78,9 @@ Promise-based CRUD over 11 object stores:
 | `skillsMatrices`   | Skills matrix data                     |
 | `customSections`   | User-defined section templates         |
 
-Database name: `careercanvas-db`, version 4.
+Database name: `careercanvas-db`, version 5 (`documents` has an `ownerId` index for
+per-user queries; v4 databases upgrade non-destructively on open. `db.getDocumentsByOwner()`
+prefers the index and falls back to in-memory filtering).
 
 ### `router.js` -- Hash-based Router
 
@@ -332,10 +334,22 @@ Local dev (own key):   Client -> Groq API directly (or Gemini)
 
 | File              | Purpose                                                  |
 |-------------------|----------------------------------------------------------|
-| `auth-config.js`  | Fetches Supabase credentials from `/api/public-config`   |
+| `auth-config.js`  | Fetches Supabase credentials from `/api/public-config` (prod), `window.__CC_AUTH_CONFIG__`, or gitignored `local-config.js` (localhost dev only) |
 | `auth-state.js`   | Singleton state manager with subscriber pattern          |
 | `auth-service.js` | Supabase client init, sign-in/up/out, session management |
 | `auth-ui.js`      | Login, signup, password reset, account pages (DOM)       |
+| `user-store.js`   | Per-user ownership: `ownerId` tagging/filter, legacy adoption, guest-data wipe |
+| `cloud-store.js`  | Optional Supabase `user_documents` mirror (offline-first, best-effort) |
+
+### Design Principles
+
+- **Optional**: Auth is non-blocking. The app works fully without Supabase configured.
+- **Guest mode**: Default. Guest documents (`ownerId === 'guest'`) are temporary — usable during the session, never synced, dashboard shows a guest banner, and they are wiped on sign-in/sign-up/sign-out. No account required.
+- **Signed-in mode**: Every `documents` write is auto-tagged with the user's id (`db.js` choke point). Dashboard shows only that user's saved resumes; the editor blocks opening other owners' docs by URL. Legacy untagged docs are adopted once on login.
+- **Cloud sync**: When configured, `user_documents` (RLS: owner-only) mirrors documents — dashboard merges (newer `lastModified` wins, local-only pushed up), editor autosave mirrors. IndexedDB stays the source of truth; all cloud calls fail soft.
+- **Auth statuses**: `initializing`, `authenticated`, `unauthenticated`, `guest`, `expired`, `configError`, `providerError`, `offline`.
+- **Route guarding**: Public routes (`/welcome`, `/login`, `/signup`, etc.) are accessible without auth. All other routes require either guest mode or authentication.
+- **Intended route**: When auth redirects to login, the originally requested route is preserved and restored after sign-in.
 
 ### Design Principles
 

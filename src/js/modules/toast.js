@@ -180,6 +180,13 @@ export class Toast {
    * Creates the toast container if it doesn't exist
    */
   createContainer() {
+    // Reuse the shell's container when present (app.js renderShell creates
+    // #toast-container) so toasts share one fixed-position stack.
+    const existing = document.getElementById('toast-container');
+    if (existing) {
+      this.container = existing;
+      return;
+    }
     this.container = createElement('div', '', {
       class: 'toast-container',
       'aria-live': 'polite',

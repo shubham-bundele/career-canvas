@@ -4,9 +4,37 @@
  */
 
 import eventBus, { EVENTS } from './events.js';
+import authState, { AUTH_STATUS } from '../auth/auth-state.js';
 
 const DB_NAME = 'careercanvas-db';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
+
+/**
+ * Owner id for the current session (authenticated user id, or 'guest').
+ * Kept local to avoid a hard dependency cycle (auth-state is a leaf module).
+ */
+function currentOwnerId() {
+  try {
+    const state = authState.get();
+    if (state.status === AUTH_STATUS.AUTHENTICATED && state.user && state.user.id) {
+      return state.user.id;
+    }
+  } catch (e) { /* auth not ready — fall through to guest */ }
+  return 'guest';
+}
+
+/**
+ * Tags document-store writes with the current owner so every writer
+ * (dashboard, editor, importer, studios, onboarding) is covered from one
+ * choke point. Existing tags are never overwritten, and legacy documents
+ * without a tag keep flowing through untouched until adopted.
+ */
+function tagDocumentOwner(storeName, data) {
+  if (storeName === STORES.DOCUMENTS && data && typeof data === 'object' && !Array.isArray(data)) {
+    if (!data.ownerId) data.ownerId = currentOwnerId();
+  }
+  return data;
+}
 
 /**
  * Object store names
@@ -60,6 +88,15 @@ export class Database {
       request.onupgradeneeded = (event) => {
         const db = event.target.result;
         this.createStores(db, event.oldVersion, event.newVersion);
+        // v5 upgrade: existing DBs need the ownerId index for per-user filtering.
+        if (event.oldVersion > 0 && event.oldVersion < 5) {
+          try {
+            const store = event.target.transaction.objectStore(STORES.DOCUMENTS);
+            if (store && !store.indexNames.contains('ownerId')) {
+              store.createIndex('ownerId', 'ownerId', { unique: false });
+            }
+          } catch (e) { /* best-effort: in-memory owner filtering still works */ }
+        }
       };
     });
 
@@ -80,6 +117,7 @@ export class Database {
       documentsStore.createIndex('pinned', 'pinned', { unique: false });
       documentsStore.createIndex('archived', 'archived', { unique: false });
       documentsStore.createIndex('targetRole', 'targetRole', { unique: false });
+      documentsStore.createIndex('ownerId', 'ownerId', { unique: false });
     }
 
     // Master Profile store
@@ -228,6 +266,7 @@ export class Database {
    */
   async create(storeName, data) {
     await this.ensureReady();
+    tagDocumentOwner(storeName, data);
 
     try {
       return await new Promise((resolve, reject) => {
@@ -268,6 +307,7 @@ export class Database {
    */
   async update(storeName, data) {
     await this.ensureReady();
+    tagDocumentOwner(storeName, data);
 
     try {
       return await new Promise((resolve, reject) => {
@@ -335,6 +375,30 @@ export class Database {
       request.onsuccess = () => resolve(request.result || []);
       request.onerror = () => reject(request.error);
     });
+  }
+
+  /**
+   * Gets documents owned by one owner via the `ownerId` index (DB v5+).
+   * Falls back to in-memory filtering on pre-v5 databases where the index
+   * does not exist yet, so upgrades never break callers.
+   * @param {string} ownerId - Owner id (`'guest'` or an authenticated user id)
+   * @returns {Promise<Array>} Owned documents plus legacy untagged documents
+   */
+  async getDocumentsByOwner(ownerId) {
+    try {
+      const owned = await this.getByIndex(STORES.DOCUMENTS, 'ownerId', ownerId);
+      // Legacy documents predate ownership tags (no ownerId key, so the index
+      // skips them) — append them so nobody loses work before adoption runs.
+      const ids = new Set((owned || []).map((d) => d && d.id));
+      const all = await this.getAll(STORES.DOCUMENTS);
+      for (const d of all || []) {
+        if (d && !d.ownerId && !ids.has(d.id)) owned.push(d);
+      }
+      return owned;
+    } catch (e) {
+      const all = await this.getAll(STORES.DOCUMENTS);
+      return (all || []).filter((d) => !d || !d.ownerId || d.ownerId === ownerId);
+    }
   }
 
   /**

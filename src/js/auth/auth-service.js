@@ -4,7 +4,7 @@ import authState, { AUTH_STATUS } from './auth-state.js';
 let supabaseClient = null;
 let authListener = null;
 
-async function getSupabase() {
+export async function getSupabase() {
   if (supabaseClient) return supabaseClient;
   const config = getAuthConfig();
   if (!config.configured) return null;
@@ -25,6 +25,30 @@ async function getSupabase() {
     authState.update({ status: AUTH_STATUS.PROVIDER_ERROR, error: 'Failed to load authentication provider', initialized: true });
     return null;
   }
+}
+
+/**
+ * Shared accessor for the lazily-created Supabase client (used by
+ * cloud-store.js for document sync). Returns null when auth is unconfigured
+ * or the CDN client cannot load — never throws.
+ * @returns {Promise<Object|null>}
+ */
+export async function getSupabaseClient() {
+  return getSupabase();
+}
+
+/**
+ * Fire-and-forget removal of temporary guest documents after an auth
+ * transition. Guests never have saved data: once a user signs in/out, any
+ * `ownerId === 'guest'` documents are wiped from the local store.
+ */
+function clearGuestDocsSoon() {
+  try {
+    import('./user-store.js').then(({ clearGuestData }) => {
+      const db = window.CC && window.CC.db ? window.CC.db : null;
+      if (db) clearGuestData(db).catch(() => {});
+    }).catch(() => {});
+  } catch (e) { /* ignore */ }
 }
 
 export async function initializeAuth() {
@@ -82,6 +106,9 @@ export async function initializeAuth() {
           isGuest: false,
           error: null
         });
+        // Guest work is temporary — wipe it so the account starts clean
+        // and only the user's own saved resumes remain.
+        clearGuestDocsSoon();
       } else if (event === 'SIGNED_OUT') {
         authState.update({
           status: AUTH_STATUS.GUEST,
@@ -119,7 +146,17 @@ export async function signUp({ email, password, displayName }) {
 
   if (error) return { error: { message: error.message } };
 
-  const needsVerification = data.user && !data.session;
+  const user = data && data.user;
+  // Repeated signup with an existing address: GoTrue answers 200 with an
+  // obfuscated user (empty `identities`) and sends NO email
+  // (anti-enumeration). Flag it so the UI can say "already exists — sign
+  // in" instead of parking the user on verify-email waiting for a message
+  // that will never arrive.
+  if (user && Array.isArray(user.identities) && user.identities.length === 0 && !data.session) {
+    return { data, alreadyRegistered: true };
+  }
+
+  const needsVerification = user && !data.session;
   return { data, needsVerification };
 }
 
@@ -184,6 +221,8 @@ export async function signOut() {
     error: null
   });
   localStorage.setItem('cc_auth_guest', 'true');
+  // Leaving the account: discard any temporary guest work created earlier.
+  clearGuestDocsSoon();
 }
 
 export async function requestPasswordReset({ email }) {
@@ -258,11 +297,41 @@ export async function requestAccountDeletion() {
 
 export async function handleAuthCallback() {
   const sb = await getSupabase();
-  if (!sb) return { error: 'Auth not configured' };
+  if (!sb) {
+    return { error: getAuthConfig().configured
+      ? 'Authentication service unavailable. Check your connection and retry'
+      : 'Auth not configured' };
+  }
 
-  const hash = window.location.hash;
-  const params = new URLSearchParams(hash.includes('?') ? hash.split('?')[1] : '');
-  const type = params.get('type');
+  // Supabase delivers the PKCE `code` either in the query string
+  // (?code=...) or, with hash routing, inside the hash fragment.
+  // The client runs with detectSessionInUrl:false, so the code must be
+  // exchanged explicitly — otherwise verification links land on a dead page.
+  const hash = window.location.hash || '';
+  const hashQuery = hash.includes('?') ? hash.split('?')[1].split('#')[0] : '';
+  const params = new URLSearchParams(window.location.search || '');
+  const hashParams = new URLSearchParams(hashQuery);
+  const code = params.get('code') || hashParams.get('code');
+  const type = params.get('type') || hashParams.get('type');
+
+  if (code) {
+    try {
+      const { data, error } = await sb.auth.exchangeCodeForSession(code);
+      if (error) return { error: error.message };
+      if (data && data.session) {
+        // Scrub the one-time code from the address bar.
+        try {
+          window.history.replaceState({}, '', `${window.location.pathname}#/auth/callback`);
+        } catch (e) { /* ignore */ }
+        return { type: type || 'signup', session: data.session };
+      }
+    } catch (e) {
+      return { error: (e && e.message) || 'Verification failed' };
+    }
+    // A code was present but produced no session (expired, already used,
+    // or malformed). Don't fall through silently — the caller shows this.
+    return { error: 'This verification link is invalid or has expired' };
+  }
 
   if (type === 'recovery') {
     return { type: 'recovery' };

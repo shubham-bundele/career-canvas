@@ -1,5 +1,26 @@
 import { escapeHtml } from '../utils/sanitize.js';
 
+/**
+ * Normalizes either backup dialect into the flat shape the settings
+ * importer consumes (store-name keys → record arrays, plus `preferences`):
+ * - Settings/app exports: { type:'careercanvas-full-backup', <store>: [...], preferences }
+ * - Data & Backup studio exports: { version:number, stores:{...} } (full) or
+ *   { storeName, data:[...] } (single category).
+ * @param {any} data - Parsed backup JSON
+ * @returns {Object|null} Flat backup object, or null when unrecognized.
+ */
+export function normalizeBackupData(data) {
+  if (!data || typeof data !== 'object') return null;
+  if (data.type === 'careercanvas-full-backup') return data;
+  if (data.stores && typeof data.stores === 'object') {
+    return { ...data, ...data.stores };
+  }
+  if (typeof data.storeName === 'string' && Array.isArray(data.data)) {
+    return { ...data, [data.storeName]: data.data };
+  }
+  return null;
+}
+
 export class SettingsPanel {
   constructor(db, events) {
     this.db = db;
@@ -619,7 +640,10 @@ export class SettingsPanel {
           const a = document.createElement('a');
           a.href = url;
           a.download = `CareerCanvas_Backup_${new Date().toISOString().split('T')[0]}.json`;
+          // Must be in the DOM for Firefox to trigger the download.
+          document.body.appendChild(a);
           a.click();
+          a.remove();
           URL.revokeObjectURL(url);
 
           if (window.CC && window.CC.toast) {
@@ -645,7 +669,12 @@ export class SettingsPanel {
           try {
             const text = await file.text();
             const data = JSON.parse(text);
-            if (data.type !== 'careercanvas-full-backup') {
+            // Accept both backup dialects: settings/app exports
+            // ({type:'careercanvas-full-backup', flat store arrays}) and
+            // Data & Backup studio exports ({version:number, stores:{...}}
+            // or single-category {storeName, data}). See normalizeBackupData().
+            const source = normalizeBackupData(data);
+            if (!source) {
               if (window.CC && window.CC.toast) {
                 window.CC.toast.show('Invalid backup file format', 'error');
               }
@@ -658,19 +687,21 @@ export class SettingsPanel {
                   const stores = ['documents', 'masterProfile', 'jobDescriptions', 'applications', 'contentLibrary', 'snapshots', 'designPresets'];
                   let count = 0;
                   for (const store of stores) {
-                    if (data[store] && Array.isArray(data[store])) {
-                      for (const item of data[store]) {
+                    if (source[store] && Array.isArray(source[store])) {
+                      for (const item of source[store]) {
                         try {
-                          await this.db.put(store, item);
+                          // add-only: existing records keep their current data
+                          // (as the confirmation dialog promises).
+                          await this.db.create(store, item);
                           count++;
                         } catch (e) {
-                          // Skip duplicates
+                          // Duplicate key or write error — skip
                         }
                       }
                     }
                   }
-                  if (data.preferences) {
-                    Object.entries(data.preferences).forEach(([k, v]) => {
+                  if (source.preferences) {
+                    Object.entries(source.preferences).forEach(([k, v]) => {
                       localStorage.setItem(k, v);
                     });
                   }
@@ -713,41 +744,45 @@ export class SettingsPanel {
 
     const btnClearAll = this.el.querySelector('#btn-clear-all');
     if (btnClearAll) {
-      btnClearAll.addEventListener('click', () => {
+      btnClearAll.addEventListener('click', async () => {
         if (window.CC && window.CC.modal) {
-          window.CC.modal.confirm(
+          // Two sequential steps (confirm, then type DELETE). Awaited in
+          // order — Modal.close() releases state synchronously, so opening
+          // the prompt right after the confirm is safe.
+          const ok = await window.CC.modal.confirm(
             'PERMANENTLY DELETE ALL DATA? This will remove all documents, career profiles, applications, settings, and cannot be undone. Consider exporting a backup first.',
-            async () => {
-              window.CC.modal.prompt(
-                'Are you absolutely sure? Type DELETE to confirm.',
-                async (value) => {
-                  if (value !== 'DELETE') {
-                    window.CC.toast.show('Deletion cancelled — you must type DELETE exactly.', 'warning');
-                    return;
-                  }
-                  try {
-                    const stores = ['documents', 'masterProfile', 'jobDescriptions', 'applications', 'contentLibrary', 'snapshots', 'images', 'designPresets'];
-                    for (const store of stores) {
-                      try {
-                        await this.db.clear(store);
-                      } catch (e) { /* ignore */ }
-                    }
-                    const keysToRemove = [];
-                    for (let i = 0; i < localStorage.length; i++) {
-                      const key = localStorage.key(i);
-                      if (key.startsWith('cc_')) keysToRemove.push(key);
-                    }
-                    keysToRemove.forEach(k => localStorage.removeItem(k));
-                    window.CC.toast.show('All data cleared', 'info');
-                    window.location.hash = '#/dashboard';
-                    window.location.reload();
-                  } catch (err) {
-                    window.CC.toast.show('Failed to clear data', 'error');
-                  }
-                }
-              );
+            null,
+            { title: 'Delete All Data', danger: true, confirmLabel: 'Continue' }
+          ).catch(() => false);
+          if (!ok) return;
+          const value = await window.CC.modal.prompt(
+            'Are you absolutely sure? Type DELETE to confirm.',
+            '',
+            { title: 'Final Confirmation' }
+          ).catch(() => null);
+          if (value !== 'DELETE') {
+            window.CC.toast.show('Deletion cancelled — you must type DELETE exactly.', 'warning');
+            return;
+          }
+          try {
+            const stores = ['documents', 'masterProfile', 'jobDescriptions', 'applications', 'contentLibrary', 'snapshots', 'images', 'designPresets'];
+            for (const store of stores) {
+              try {
+                await this.db.clear(store);
+              } catch (e) { /* ignore */ }
             }
-          );
+            const keysToRemove = [];
+            for (let i = 0; i < localStorage.length; i++) {
+              const key = localStorage.key(i);
+              if (key.startsWith('cc_')) keysToRemove.push(key);
+            }
+            keysToRemove.forEach(k => localStorage.removeItem(k));
+            window.CC.toast.show('All data cleared', 'info');
+            window.location.hash = '#/dashboard';
+            window.location.reload();
+          } catch (err) {
+            window.CC.toast.show('Failed to clear data', 'error');
+          }
         }
       });
     }

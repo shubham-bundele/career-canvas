@@ -22,6 +22,7 @@ import { ExperienceCalculator } from './modules/experience-calculator.js';
 import { ThemeEngine } from './core/theme-engine.js';
 import { initializeAuth, continueAsGuest, signOut } from './auth/auth-service.js';
 import authState, { AUTH_STATUS } from './auth/auth-state.js';
+import { countGuestDocuments, filterDocumentsByOwner, GUEST_OWNER_ID } from './auth/user-store.js';
 
 class CareerCanvasApp {
   constructor() {
@@ -54,8 +55,17 @@ class CareerCanvasApp {
       this.renderShell();
       this.setupTheme();
 
-      // Initialize auth (non-blocking — app works as guest if not configured)
-      initializeAuth().catch(e => console.warn('Auth init:', e.message));
+      // Wait for the auth restore (bounded — app still boots as guest when
+      // auth is slow or unconfigured) so a stored session isn't mistaken
+      // for "logged out" and bounced to /welcome on reload.
+      try {
+        await Promise.race([
+          initializeAuth(),
+          new Promise(resolve => setTimeout(resolve, 4000))
+        ]);
+      } catch (e) {
+        console.warn('Auth init:', e.message);
+      }
 
       // First visit must land on signup — auth is required.
       // Note: clearing "Cache" in Chrome does NOT clear localStorage;
@@ -231,6 +241,14 @@ class CareerCanvasApp {
                 <span class="app-nav-icon" aria-hidden="true">&#128451;</span>
                 <span>Data & Backup</span>
               </a>
+              <a href="#/import" class="app-nav-dropdown-item" data-route="import" role="menuitem">
+                <span class="app-nav-icon" aria-hidden="true">&#128229;</span>
+                <span>Import</span>
+              </a>
+              <a href="#/stress-lab" class="app-nav-dropdown-item" data-route="stress-lab" role="menuitem">
+                <span class="app-nav-icon" aria-hidden="true">&#129514;</span>
+                <span>Stress Lab</span>
+              </a>
               <div class="app-nav-dropdown-divider" role="separator"></div>
               <button class="app-nav-dropdown-item" id="btn-exp-calc-dropdown" role="menuitem" type="button">
                 <span class="app-nav-icon" aria-hidden="true">&#9202;</span>
@@ -265,7 +283,6 @@ class CareerCanvasApp {
           </a>
         </nav>
         <div class="app-header-actions">
-          <button class="btn btn-sm btn-primary" id="btn-new-document">+ New</button>
           <button class="btn btn-sm btn-ghost" id="btn-theme-toggle" aria-label="Toggle theme" title="Toggle dark mode">
             <span id="theme-icon" aria-hidden="true">🌙</span>
           </button>
@@ -341,6 +358,58 @@ class CareerCanvasApp {
         <span class="app-nav-icon" aria-hidden="true">&#9112;</span>
         <span>PDF Studio</span>
       </a>
+      <a href="#/packages" class="app-nav-link" data-route="packages">
+        <span class="app-nav-icon" aria-hidden="true">&#9993;</span>
+        <span>Packages</span>
+      </a>
+      <a href="#/timeline" class="app-nav-link" data-route="timeline">
+        <span class="app-nav-icon" aria-hidden="true">&#8942;</span>
+        <span>Timeline</span>
+      </a>
+      <a href="#/consistency" class="app-nav-link" data-route="consistency">
+        <span class="app-nav-icon" aria-hidden="true">&#10003;</span>
+        <span>Consistency</span>
+      </a>
+      <a href="#/privacy-check" class="app-nav-link" data-route="privacy-check">
+        <span class="app-nav-icon" aria-hidden="true">&#128274;</span>
+        <span>Privacy Check</span>
+      </a>
+      <a href="#/portfolio" class="app-nav-link" data-route="portfolio">
+        <span class="app-nav-icon" aria-hidden="true">&#127912;</span>
+        <span>Portfolio</span>
+      </a>
+      <a href="#/links-qr" class="app-nav-link" data-route="links-qr">
+        <span class="app-nav-icon" aria-hidden="true">&#128279;</span>
+        <span>Links & QR</span>
+      </a>
+      <a href="#/localization" class="app-nav-link" data-route="localization">
+        <span class="app-nav-icon" aria-hidden="true">&#127760;</span>
+        <span>Localization</span>
+      </a>
+      <a href="#/optimizer" class="app-nav-link" data-route="optimizer">
+        <span class="app-nav-icon" aria-hidden="true">&#9986;</span>
+        <span>Optimizer</span>
+      </a>
+      <a href="#/a11y-inspector" class="app-nav-link" data-route="a11y-inspector">
+        <span class="app-nav-icon" aria-hidden="true">&#9855;</span>
+        <span>Accessibility</span>
+      </a>
+      <a href="#/versions" class="app-nav-link" data-route="versions">
+        <span class="app-nav-icon" aria-hidden="true">&#128195;</span>
+        <span>Versions</span>
+      </a>
+      <a href="#/data-backup" class="app-nav-link" data-route="data-backup">
+        <span class="app-nav-icon" aria-hidden="true">&#128451;</span>
+        <span>Data & Backup</span>
+      </a>
+      <a href="#/import" class="app-nav-link" data-route="import">
+        <span class="app-nav-icon" aria-hidden="true">&#128229;</span>
+        <span>Import</span>
+      </a>
+      <a href="#/stress-lab" class="app-nav-link" data-route="stress-lab">
+        <span class="app-nav-icon" aria-hidden="true">&#129514;</span>
+        <span>Stress Lab</span>
+      </a>
       <a href="#/settings" class="app-nav-link" data-route="settings">
         <span class="app-nav-icon" aria-hidden="true">&#9881;</span>
         <span>Settings</span>
@@ -362,12 +431,6 @@ class CareerCanvasApp {
 
     this.setupToolsDropdown();
     this.setupMobileMenu();
-
-    document.getElementById('btn-new-document').addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      this.showNewDocumentDialog();
-    });
 
     document.getElementById('btn-theme-toggle').addEventListener('click', () => {
       this.toggleTheme();
@@ -460,8 +523,31 @@ class CareerCanvasApp {
 
     menu.innerHTML = '<div class="app-account-menu-header"><strong>Guest Mode</strong><span>Using CareerCanvas locally</span></div><div class="app-account-menu-divider"></div>';
 
+    const goSignIn = async () => {
+      // Guest work is wiped on sign-in — offer a backup first (same guard
+      // as the dashboard guest banner).
+      try {
+        const n = await countGuestDocuments(this.db);
+        if (n > 0) {
+          const saveFirst = confirm(
+            `You have ${n} unsaved guest resume${n === 1 ? '' : 's'}. Guest work is temporary and will be cleared when you sign in.\n\nPress OK to download a backup first, or Cancel to continue to sign in.`
+          );
+          if (saveFirst) {
+            menu.remove();
+            this.events.emit('dashboard:exportAll');
+            if (this.toast) this.toast.show('Backup downloading — sign in when ready, then re-import it.', 'info', 6000);
+            return;
+          }
+        }
+      } catch (e) { /* proceed to sign in */ }
+      menu.remove();
+      const c = this.router.getCurrentRoute()?.path;
+      if (c && c !== '/welcome') authState.setIntendedRoute(c);
+      this.router.navigate('/login');
+    };
+
     const items = [
-      { label: 'Sign In', action: () => { menu.remove(); const c = this.router.getCurrentRoute()?.path; if (c && c !== '/welcome') authState.setIntendedRoute(c); this.router.navigate('/login'); } },
+      { label: 'Sign In', action: () => { goSignIn(); } },
       { label: 'Create Account', action: () => { menu.remove(); this.router.navigate('/signup'); } },
       { label: 'Settings', action: () => { menu.remove(); this.router.navigate('/settings'); } }
     ];
@@ -535,8 +621,8 @@ class CareerCanvasApp {
     signOutBtn.addEventListener('click', async () => {
       menu.remove();
       await signOut();
-      if (window.CC?.toast) window.CC.toast.show('Signed out. Local documents remain available on this device.', 'info');
-      this.router.navigate('/dashboard');
+      if (window.CC?.toast) window.CC.toast.show('Signed out. See you soon!', 'info');
+      this.router.navigate('/welcome');
     });
     menu.appendChild(signOutBtn);
 
@@ -605,15 +691,40 @@ class CareerCanvasApp {
 
     this.router.setGuard(async (toPath, fromPath) => {
       if (this.currentView && this.currentView.hasUnsavedChanges && this.currentView.hasUnsavedChanges()) {
+        // Prefer the app modal (native dialogs auto-dismiss in automation).
+        // Exception: with the setup wizard overlay open the modal would stack
+        // under it (same --z-modal) — native confirm stays visible there.
+        const modalApi = window.CC && window.CC.modal;
+        const wizardOpen = !!document.querySelector('.onboarding-overlay');
+        if (modalApi && typeof modalApi.confirm === 'function' && !wizardOpen) {
+          const res = await modalApi.confirm(
+            'You have unsaved changes. Are you sure you want to leave?',
+            null,
+            { title: 'Unsaved Changes', confirmLabel: 'Leave', cancelLabel: 'Stay' }
+          ).catch(() => false);
+          return res === true;
+        }
         return confirm('You have unsaved changes. Are you sure you want to leave?');
       }
 
       // Auth gate: every app route requires an auth session or explicit guest.
       // "onboardingComplete" alone no longer grants access — first visit must see signup.
       const publicRoutes = ['/welcome', '/login', '/signup', '/verify-email', '/forgot-password', '/reset-password', '/auth/callback', '/import', '/privacy', '/terms', '/features', '/about', '/faq', '/roadmap', '/contact', '/accessibility', '/changelog'];
+      // Wait for the auth restore (bounded) so a reload with a stored session
+      // isn't mistaken for "logged out". initializeAuth is awaited at boot too.
+      if (!authState.isInitialized()) {
+        try {
+          await Promise.race([
+            authState.waitForInit(),
+            new Promise(resolve => setTimeout(resolve, 4000))
+          ]);
+        } catch (e) { /* fall through with whatever state we have */ }
+      }
       const hasAccess = localStorage.getItem('cc_auth_guest') === 'true' || authState.isAuthenticated();
 
       if (!hasAccess && !publicRoutes.includes(toPath)) {
+        // Remember where the user wanted to go for the post-login/guest return.
+        try { authState.setIntendedRoute(toPath); } catch (e) { /* ignore */ }
         this.router.navigate('/welcome');
         return false;
       }
@@ -647,12 +758,12 @@ class CareerCanvasApp {
     }
 
     this.updateActiveNav(viewName);
+    this.updateDocumentTitle(viewName, params);
 
-    main.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;padding:3rem;color:var(--text-muted)">Loading...</div>';
+    main.innerHTML = '<div class="app-loading-placeholder" role="status" style="display:flex;align-items:center;justify-content:center;padding:3rem;color:var(--text-muted)">Loading...</div>';
     main.scrollTop = 0;
 
     try {
-      main.innerHTML = '';
       switch (viewName) {
         case 'dashboard': {
           this.currentView = new Dashboard(this.db, this.events, this.templateEngine);
@@ -662,6 +773,7 @@ class CareerCanvasApp {
         }
         case 'editor': {
           if (!params.id) {
+            this.toast.show('Document not found', 'error');
             this.router.navigate('/dashboard');
             return;
           }
@@ -885,8 +997,15 @@ class CareerCanvasApp {
           break;
         }
         default:
-          main.innerHTML = '<div class="container p-6"><h1>Page not found</h1><p><a href="#/dashboard">Return to Dashboard</a></p></div>';
+          main.innerHTML = `<div class="container p-6" style="text-align:center;max-width:520px;margin:0 auto;padding-top:4rem">
+            <div style="font-size:2.5rem" aria-hidden="true">🧭</div>
+            <h1>Page not found</h1>
+            <p style="color:var(--text-secondary)">The page you're looking for doesn't exist or was moved.</p>
+            <p><a href="#/dashboard" class="btn btn-sm btn-primary">Return to Dashboard</a>
+            <button class="btn btn-sm btn-ghost" type="button" onclick="history.back()">Go Back</button></p></div>`;
       }
+      const loadingEl = main.querySelector('.app-loading-placeholder');
+      if (loadingEl) loadingEl.remove();
     } catch (err) {
       console.error(`Error loading view ${viewName}:`, err);
       main.className = 'app-main';
@@ -896,7 +1015,12 @@ class CareerCanvasApp {
     if (viewName !== 'editor') {
       main.className = 'app-main';
       this.showFooter(main);
+    } else {
+      this.showSlimFooter(main);
     }
+
+    // Move focus to main for screen-reader route announcements (skip-link target).
+    try { main.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
   }
 
   updateActiveNav(viewName) {
@@ -908,9 +1032,52 @@ class CareerCanvasApp {
     });
     const toolsTrigger = document.querySelector('.app-nav-dropdown-trigger');
     if (toolsTrigger) {
-      const isToolActive = ['job-matcher', 'skills-matrix', 'theme-studio', 'section-studio', 'pdf-studio', 'packages', 'timeline', 'consistency', 'privacy-check', 'localization', 'portfolio', 'links-qr', 'optimizer', 'a11y-inspector', 'versions', 'data-backup', 'stress-lab'].includes(viewName);
+      const isToolActive = ['job-matcher', 'skills-matrix', 'theme-studio', 'section-studio', 'pdf-studio', 'packages', 'timeline', 'consistency', 'privacy-check', 'localization', 'portfolio', 'links-qr', 'optimizer', 'a11y-inspector', 'versions', 'data-backup', 'stress-lab', 'import'].includes(viewName);
       toolsTrigger.classList.toggle('active', isToolActive);
     }
+  }
+
+  updateDocumentTitle(viewName, params = {}) {
+    const titles = {
+      'dashboard': 'Dashboard',
+      'editor': 'Editor',
+      'templates': 'Templates',
+      'master-profile': 'Master Profile',
+      'applications': 'Applications',
+      'settings': 'Settings',
+      'job-matcher': 'JD Matcher',
+      'skills-matrix': 'Skills Matrix',
+      'theme-studio': 'Theme Studio',
+      'section-studio': 'Section Studio',
+      'pdf-studio': 'PDF Studio',
+      'packages': 'Packages',
+      'timeline': 'Timeline',
+      'consistency': 'Consistency',
+      'privacy-check': 'Privacy Check',
+      'localization': 'Localization',
+      'portfolio': 'Portfolio',
+      'links-qr': 'Links & QR',
+      'optimizer': 'Optimizer',
+      'a11y-inspector': 'Accessibility',
+      'versions': 'Versions',
+      'data-backup': 'Data & Backup',
+      'stress-lab': 'Stress Lab',
+      'import': 'Import',
+      'welcome': 'Welcome',
+      'login': 'Sign In',
+      'signup': 'Create Account',
+      'verify-email': 'Verify Email',
+      'forgot-password': 'Forgot Password',
+      'reset-password': 'Reset Password',
+      'auth-callback': 'Signing In',
+      'account-profile': 'Account Profile',
+      'account-security': 'Account Security'
+    };
+    let title = titles[viewName] || 'CareerCanvas';
+    if (viewName === 'static-page' && params.page) {
+      title = params.page.charAt(0).toUpperCase() + params.page.slice(1);
+    }
+    document.title = `${title} – CareerCanvas`;
   }
 
   setupToolsDropdown() {
@@ -1032,9 +1199,37 @@ class CareerCanvasApp {
     this.router.navigate(intended || '/dashboard');
   }
 
-  showOnboarding() {
-    // Don't show if user already has documents or completed onboarding
-    if (localStorage.getItem('onboardingComplete')) return;
+  /**
+   * Guest entry point: "Continue as Guest" always starts with the setup
+   * wizard when the guest has no documents yet (fresh guest), otherwise it
+   * lands straight on the dashboard (returning guest). Guest work is
+   * temporary and never saved — see user-store.js.
+   */
+  async enterAsGuest() {
+    continueAsGuest();
+    let guestDocs = [];
+    try {
+      const all = await this.db.getAll('documents');
+      guestDocs = filterDocumentsByOwner(all, GUEST_OWNER_ID);
+    } catch (e) { /* ignore — treat as fresh guest */ }
+
+    if (guestDocs.length === 0) {
+      // Dashboard underneath, setup wizard overlays on top.
+      this.router.navigate('/dashboard');
+      this.showOnboarding(true);
+      return;
+    }
+    localStorage.setItem('onboardingComplete', 'true');
+    // Return to the pre-gate deep link when there is one (set by the guard).
+    let intended = null;
+    try { intended = authState.clearIntendedRoute(); } catch (e) { /* ignore */ }
+    this.router.navigate(intended || '/dashboard');
+  }
+
+  showOnboarding(force = false) {
+    // Don't show if the user already completed onboarding (unless forced,
+    // e.g. a fresh guest who explicitly chose "Continue as Guest").
+    if (!force && localStorage.getItem('onboardingComplete')) return;
 
     // Remove any existing wizard overlay
     const existing = document.querySelector('.onboarding-overlay');
@@ -1116,7 +1311,12 @@ class CareerCanvasApp {
     this.events.on('document:delete', async (payload) => {
       const id = payload && payload.id ? payload.id : payload;
       try {
-        await this.db.delete('documents', id);
+        const { deleteDocumentAndRelated } = await import('./modules/dashboard.js');
+        await deleteDocumentAndRelated(this.db, id);
+        try {
+          const { deleteCloudDocument } = await import('./auth/cloud-store.js');
+          deleteCloudDocument(id); // best-effort (no-op for guests/offline)
+        } catch (e) { /* cloud mirror optional */ }
         this.toast.show('Document deleted', 'info');
       } catch (e) {
         this.toast.show('Failed to delete document', 'error');
@@ -1130,6 +1330,8 @@ class CareerCanvasApp {
         if (doc) {
           const { generateId } = await import('./utils/id.js');
           const copy = { ...doc, id: generateId(), name: doc.name + ' (Copy)', createdAt: new Date().toISOString(), lastModified: new Date().toISOString() };
+          // Keep metadata.title in sync — the editor overwrites name from it on save.
+          copy.metadata = { ...(copy.metadata || {}), title: copy.name };
           await this.db.put('documents', copy);
           this.toast.show(`Duplicated "${doc.name}"`, 'success');
         }
@@ -1144,6 +1346,8 @@ class CareerCanvasApp {
           const doc = await this.db.get('documents', payload.id);
           if (doc) {
             doc.name = payload.name;
+            // Keep metadata.title in sync — the editor overwrites name from it on save.
+            doc.metadata = { ...(doc.metadata || {}), title: doc.name };
             doc.lastModified = new Date().toISOString();
             await this.db.put('documents', doc);
             this.toast.show(`Renamed to "${payload.name}"`, 'success');
@@ -1174,8 +1378,11 @@ class CareerCanvasApp {
       this.toast.show('Import complete', 'success');
     });
 
-    this.events.on('export:complete', (filename) => {
-      this.toast.show(`Exported: ${filename}`, 'success');
+    this.events.on('export:complete', (payload) => {
+      const label = typeof payload === 'string'
+        ? payload
+        : (payload && (payload.filename || payload.format)) || 'document';
+      this.toast.show(`Exported: ${label}`, 'success');
     });
 
     this.events.on('dashboard:import', () => {
@@ -1197,7 +1404,10 @@ class CareerCanvasApp {
         const a = document.createElement('a');
         a.href = url;
         a.download = `CareerCanvas_Backup_${new Date().toISOString().split('T')[0]}.json`;
+        // Must be in the DOM for Firefox to trigger the download.
+        document.body.appendChild(a);
         a.click();
+        a.remove();
         URL.revokeObjectURL(url);
         this.toast.show('Full backup exported', 'success');
       } catch (e) {
@@ -1431,6 +1641,13 @@ class CareerCanvasApp {
           <a href="#/accessibility">Accessibility</a>
         </div>
         <div class="app-footer-col">
+          <h4>App</h4>
+          <a href="#/dashboard">Dashboard</a>
+          <a href="#/import">Import</a>
+          <a href="#/data-backup">Data & Backup</a>
+          <a href="#/settings">Settings</a>
+        </div>
+        <div class="app-footer-col">
           <h4>Legal</h4>
           <a href="#/privacy">Privacy Policy</a>
           <a href="#/terms">Terms of Service</a>
@@ -1439,6 +1656,18 @@ class CareerCanvasApp {
       <div class="app-footer-bottom">
         <span>Crafted by Shubham Bundele</span>
         <span><a href="#/privacy">Privacy</a> &middot; <a href="#/terms">Terms</a></span>
+      </div>
+    `;
+    container.appendChild(footer);
+  }
+
+  showSlimFooter(container) {
+    const footer = document.createElement('footer');
+    footer.className = 'app-footer app-footer--slim';
+    footer.innerHTML = `
+      <div class="app-footer-bottom">
+        <span>CareerCanvas</span>
+        <span><a href="#/privacy">Privacy</a> &middot; <a href="#/terms">Terms</a> &middot; <a href="#/contact">Contact</a></span>
       </div>
     `;
     container.appendChild(footer);

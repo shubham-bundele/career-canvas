@@ -1,4 +1,4 @@
 @echo off
-cd /d "D:\Career Canvas"
+cd /d "%~dp0.."
 node --version
 npx --version

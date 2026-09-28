@@ -7,6 +7,60 @@ import eventBus, { EVENTS } from '../core/events.js';
 import { createElement, sanitizeInput } from '../utils/sanitize.js';
 import { formatTimeAgo, pluralize } from '../utils/format.js';
 import { DOCUMENT_TYPES } from '../core/schema.js';
+import authState from '../auth/auth-state.js';
+import { GUEST_OWNER_ID, getCurrentOwnerId, filterDocumentsByOwner,
+adoptLegacyDocuments, countGuestDocuments, loadOwnerDocuments } from '../auth/user-store.js';
+import { fetchCloudDocuments, pushDocument, deleteCloudDocument, mergeDocuments } from '../auth/cloud-store.js';
+
+/**
+ * Deletes a document and all data owned by it: version snapshots
+ * (`snapshots.documentId`), saved skill matrices (`skillsMatrices.documentId`)
+ * and JD-match analyses (`matchAnalyses.resumeId`). Application-tracker
+ * entries are deliberately kept — they are the user's job-search history.
+ * Every step is best-effort so a half-missing record can never abort the
+ * delete. Uses the index fast-path with a full-scan fallback for older DBs.
+ * @param {Object} db - Database wrapper
+ * @param {string} id - Document id
+ * @returns {Promise<Object>} Counts per area, e.g. { snapshots: 2, ... }
+ */
+export async function deleteDocumentAndRelated(db, id) {
+  const stats = { document: false, snapshots: 0, matrices: 0, analyses: 0 };
+  if (!db || !id) return stats;
+
+  try {
+    await db.delete('documents', id);
+    stats.document = true;
+  } catch (e) { /* already gone — keep going */ }
+
+  const deleteWhere = async (store, field, key) => {
+    let count = 0;
+    let records = null;
+    try {
+      records = await db.getByIndex(store, field, id);
+    } catch (e) {
+      // Pre-index DB: fall back to a full scan.
+      try {
+        const all = await db.getAll(store);
+        records = (all || []).filter(r => r && r[field] === id);
+      } catch (e2) { /* store missing — nothing to do */ }
+    }
+    if (Array.isArray(records)) {
+      for (const r of records) {
+        if (!r || r.id === undefined) continue;
+        try {
+          await db.delete(store, r.id);
+          count++;
+        } catch (e) { /* keep going */ }
+      }
+    }
+    return count;
+  };
+
+  stats.snapshots = await deleteWhere('snapshots', 'documentId', id);
+  stats.matrices = await deleteWhere('skillsMatrices', 'documentId', id);
+  stats.analyses = await deleteWhere('matchAnalyses', 'resumeId', id);
+  return stats;
+}
 
 /**
  * Filter types
@@ -376,17 +430,99 @@ export class Dashboard {
   }
 
   /**
-   * Loads documents from database
+   * Loads documents for the current owner.
+   * - Guests see only temporary guest documents (never synced, cleared on
+   *   auth transitions).
+   * - Signed-in users see only their own saved resumes: legacy untagged
+   *   documents are adopted once, then cloud documents are merged in
+   *   (newer `lastModified` wins) and local-only work is pushed up.
    */
   async loadDocuments() {
     try {
-      this.documents = await this.db.getAll('documents');
+      const ownerId = getCurrentOwnerId();
+      // Index-backed on DB v5+ (falls back to a full scan on older DBs).
+      const all = await loadOwnerDocuments(this.db, ownerId);
+      if (ownerId !== GUEST_OWNER_ID) {
+        try { await adoptLegacyDocuments(this.db, all, ownerId); } catch (e) { /* best-effort */ }
+      }
+      this.documents = filterDocumentsByOwner(all, ownerId);
       this.filterAndRenderDocuments();
       this.updateStats();
+      this.renderOwnerBanner();
+      if (ownerId !== GUEST_OWNER_ID) {
+        this.syncWithCloud(ownerId).catch(() => { /* offline-first: local already rendered */ });
+      }
     } catch (error) {
       console.error('Failed to load documents:', error);
       this.renderError('Failed to load documents. Please refresh the page.');
     }
+  }
+
+  /**
+   * Best-effort cloud reconciliation for signed-in users. Local IndexedDB
+   * stays the source of truth and is always rendered first; the cloud only
+   * ever adds newer documents or receives local-only work.
+   * @param {string} ownerId
+   */
+  async syncWithCloud(ownerId) {
+    const cloud = await fetchCloudDocuments();
+    if (!cloud.ok || !this.container) return;
+    const { merged, cloudNewer, localOnly } = mergeDocuments(this.documents, cloud.documents);
+    for (const doc of cloudNewer) {
+      try { await this.db.put('documents', { ...doc, ownerId }); } catch (e) { /* keep going */ }
+    }
+    for (const doc of localOnly) {
+      pushDocument({ ...doc, ownerId });
+    }
+    if (!this.container) return;
+    this.documents = filterDocumentsByOwner(
+      merged.map((d) => ({ ...d, ownerId: d.ownerId || ownerId })),
+      ownerId
+    );
+    this.filterAndRenderDocuments();
+    this.updateStats();
+  }
+
+  /**
+   * Guest-mode banner: guest work is temporary and never saved. Signed-in
+   * users see nothing (their resumes are saved + synced).
+   */
+  renderOwnerBanner() {
+    if (!this.container) return;
+    const prev = this.container.querySelector('.dashboard-owner-banner');
+    if (prev) prev.remove();
+    if (getCurrentOwnerId() !== GUEST_OWNER_ID) return;
+    const banner = createElement('div', '', { class: 'dashboard-owner-banner', role: 'status' });
+    const text = createElement('span', '', { class: 'dashboard-owner-banner-text' });
+    text.textContent = 'You are in Guest mode — resumes you create here are temporary and will not be saved. Sign in to save your resumes.';
+    banner.appendChild(text);
+    const btn = createElement('button', 'Sign In to Save', { class: 'btn btn-sm btn-primary', type: 'button' });
+    const goSignIn = async () => {
+      // Guest work is wiped on sign-in — offer a backup first (same guard
+      // as the header guest menu in app.js).
+      try {
+        const n = await countGuestDocuments(this.db);
+        if (n > 0) {
+          const saveFirst = confirm(
+            `You have ${n} unsaved guest resume${n === 1 ? '' : 's'}. Guest work is temporary and will be cleared when you sign in.\n\nPress OK to download a backup first, or Cancel to continue to sign in.`
+          );
+          if (saveFirst) {
+            eventBus.emit('dashboard:exportAll');
+            if (window.CC && window.CC.toast) window.CC.toast.show('Backup downloading — sign in when ready, then re-import it.', 'info', 6000);
+            return;
+          }
+        }
+      } catch (e) { /* proceed to sign in */ }
+      const current = window.CC && window.CC.router ? window.CC.router.getCurrentRoute() : null;
+      if (current && current.path && current.path !== '/welcome') authState.setIntendedRoute(current.path);
+      if (window.CC && window.CC.router) window.CC.router.navigate('/login');
+    };
+    btn.addEventListener('click', goSignIn);
+    this.listeners.push({ element: btn, event: 'click', handler: goSignIn });
+    banner.appendChild(btn);
+    const grid = this.container.querySelector('#dashboard-grid');
+    if (grid && grid.parentNode) grid.parentNode.insertBefore(banner, grid);
+    else this.container.prepend(banner);
   }
 
   /**
@@ -879,7 +1015,10 @@ export class Dashboard {
     try {
       const { generateId } = await import('../utils/id.js');
       const copy = { ...JSON.parse(JSON.stringify(doc)), id: generateId(), name: doc.name + ' (Copy)', createdAt: new Date().toISOString(), lastModified: new Date().toISOString() };
+      // Keep metadata.title in sync — the editor overwrites name from it on save.
+      copy.metadata = { ...(copy.metadata || {}), title: copy.name };
       await this.db.put('documents', copy);
+      pushDocument(copy); // best-effort cloud mirror (no-op for guests/offline)
       await this.loadDocuments();
     } catch (e) {
       console.error('Failed to duplicate document:', e);
@@ -921,8 +1060,11 @@ export class Dashboard {
                 return false;
               }
               doc.name = sanitizeInput(newName);
+              // Keep metadata.title in sync — the editor overwrites name from it on save.
+              doc.metadata = { ...(doc.metadata || {}), title: doc.name };
               doc.lastModified = new Date().toISOString();
               await this.db.put('documents', doc);
+              pushDocument(doc); // best-effort cloud mirror (no-op for guests/offline)
               await this.loadDocuments();
               if (window.CC.toast) window.CC.toast.show(`Renamed to "${newName}"`, 'success');
               return true;
@@ -945,6 +1087,7 @@ export class Dashboard {
     doc.archived = !doc.archived;
     doc.lastModified = new Date().toISOString();
     await this.db.put('documents', doc);
+    pushDocument(doc); // best-effort cloud mirror (no-op for guests/offline)
     await this.loadDocuments();
   }
 
@@ -952,13 +1095,30 @@ export class Dashboard {
     const doc = this.documents.find(d => d.id === id);
     if (!doc) return;
 
-    if (confirm(`Are you sure you want to delete "${doc.name}"? This action cannot be undone.`)) {
-      try {
-        await this.db.delete('documents', id);
-        await this.loadDocuments();
-      } catch (e) {
-        console.error('Failed to delete document:', e);
-      }
+    // App modal (not native confirm()): styled, keyboard-accessible,
+    // automation-friendly, and X/Escape safely cancels.
+    const modalApi = window.CC && window.CC.modal;
+    let confirmed = false;
+    if (modalApi && typeof modalApi.confirm === 'function') {
+      confirmed = await modalApi.confirm(
+        `Are you sure you want to delete "${doc.name}"? This action cannot be undone.`,
+        null,
+        { title: 'Delete Document', danger: true, confirmLabel: 'Delete' }
+      ).catch(() => false);
+    } else {
+      confirmed = confirm(`Are you sure you want to delete "${doc.name}"? This action cannot be undone.`);
+    }
+    if (!confirmed) return;
+    try {
+      await deleteDocumentAndRelated(this.db, id);
+      deleteCloudDocument(id); // best-effort cloud mirror (no-op for guests/offline)
+      await this.loadDocuments();
+      // Notify other modules + the global handler (which toasts). The global
+      // handler's own delete is a harmless no-op on the already-gone records.
+      eventBus.emit(EVENTS.DOCUMENT_DELETE, { id });
+    } catch (e) {
+      console.error('Failed to delete document:', e);
+      if (window.CC && window.CC.toast) window.CC.toast.show('Failed to delete document', 'error');
     }
   }
 

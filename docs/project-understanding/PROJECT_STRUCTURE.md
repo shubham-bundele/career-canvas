@@ -7,8 +7,9 @@ c:\resume builder\
   404.html                — GitHub Pages fallback
   package.json            — Project metadata (no build tooling)
   sw.js                   — Service Worker (currently unregistered on load)
-  debug.html              — Debug utility page
-  responsive-test.html    — Responsive testing page
+  tools/debug.html        — Debug utility page (dev only)
+  tools/responsive-test.html — Responsive testing page (dev only)
+  tools/*.bat             — Windows dev helpers (portable, repo-relative)
   DEPLOY.md               — Deployment instructions
   .gitignore              — Excludes node_modules, .local-backup, IDE files
 ```

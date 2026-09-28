@@ -177,7 +177,7 @@ export class PackageStudio {
     });
     this.addListener(dashboardLink, 'click', () => {
       if (window.CC && window.CC.router) {
-        window.CC.router.navigate('/');
+        window.CC.router.navigate('/dashboard');
       }
     });
     dashboardCrumb.appendChild(dashboardLink);
@@ -222,7 +222,7 @@ export class PackageStudio {
     });
     this.addListener(backBtn, 'click', () => {
       if (window.CC && window.CC.router) {
-        window.CC.router.navigate('/');
+        window.CC.router.navigate('/dashboard');
       }
     });
     headerActions.appendChild(backBtn);
@@ -644,7 +644,7 @@ export class PackageStudio {
     });
     this.addListener(dashboardLink, 'click', () => {
       if (window.CC && window.CC.router) {
-        window.CC.router.navigate('/');
+        window.CC.router.navigate('/dashboard');
       }
     });
     dashboardCrumb.appendChild(dashboardLink);

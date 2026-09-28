@@ -25,7 +25,9 @@ export class PrintManager {
       issues.push({ type: 'info', message: 'No phone number provided' });
     }
 
-    const sectionsList = Array.isArray(document.sections) ? document.sections : [];
+    const sectionsList = Array.isArray(document.sections)
+      ? document.sections
+      : Object.values(document.sections || {});
     const visibleSections = sectionsList.filter(s => s && s.visible !== false);
     if (visibleSections.length === 0) {
       issues.push({ type: 'error', message: 'No visible sections — the document will be nearly empty' });
@@ -221,5 +223,10 @@ export class PrintManager {
       </div>
     `;
     return div;
+  }
+
+  destroy() {
+    const styleEl = document.getElementById('cc-print-page-style');
+    if (styleEl && styleEl.parentNode) styleEl.parentNode.removeChild(styleEl);
   }
 }

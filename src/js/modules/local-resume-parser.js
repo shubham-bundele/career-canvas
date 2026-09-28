@@ -83,16 +83,18 @@ export function parseResumeLocal(text, opts = {}) {
   if (rawLines.length === 0) return parsed;
 
   // Spell-correct every line first so headers + content are fixed together.
+  // NOTE: the name/title lines are captured from the RAW text below —
+  // auto-correction must never rewrite a person's name ("Jane" → "June").
   const lines = rawLines.map((l) => {
     const r = correctLine(l);
     parsed._corrections += r.corrections;
     return r.line;
   });
 
-  // Name: first line (same convention as legacy parser).
-  const firstLine = lines[0];
-  if (firstLine.length < 60 && !firstLine.includes('@') && !firstLine.includes('http')) {
-    parsed.name = firstLine;
+  // Name: first RAW line (same convention as legacy parser).
+  const rawFirstLine = (rawLines[0] || '').trim();
+  if (rawFirstLine.length > 0 && rawFirstLine.length < 60 && !rawFirstLine.includes('@') && !rawFirstLine.includes('http')) {
+    parsed.name = rawFirstLine;
   }
 
   // Title: first title-like line right under the name (before any section).
@@ -124,7 +126,9 @@ export function parseResumeLocal(text, opts = {}) {
   };
 
   lines.forEach((line, idx) => {
-    if (idx === 0 && line === parsed.name) return;
+    // Skip the name line (compared by index: the corrected line may differ
+    // from the raw name, which is never auto-corrected).
+    if (idx === 0 && parsed.name) return;
     if (parsed.title && idx > 0 && line === parsed.title && idx < 6 && !currentSection) return;
 
     // Skip header-block contact lines before the first section.

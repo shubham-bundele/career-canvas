@@ -110,7 +110,7 @@ async function testViewport(vp, page) {
   return new Promise((resolve) => {
     const iframe = document.createElement('iframe');
     iframe.style.cssText = `width:${vp.w}px;height:${vp.h}px;border:none;position:fixed;top:-9999px;left:-9999px;`;
-    iframe.src = `index.html${page.hash}`;
+    iframe.src = `../index.html${page.hash}`;
     document.body.appendChild(iframe);
 
     const timeout = setTimeout(() => {
@@ -180,10 +180,10 @@ async function analyzeCSS() {
   // Check all stylesheets for potential issues
   try {
     const cssFiles = [
-      'src/css/reset.css', 'src/css/variables.css', 'src/css/base.css',
-      'src/css/layout.css', 'src/css/components.css', 'src/css/dashboard.css',
-      'src/css/editor.css', 'src/css/onboarding.css', 'src/css/templates.css',
-      'src/css/font-manager.css'
+      '../src/css/reset.css', '../src/css/variables.css', '../src/css/base.css',
+      '../src/css/layout.css', '../src/css/components.css', '../src/css/dashboard.css',
+      '../src/css/editor.css', '../src/css/onboarding.css', '../src/css/templates.css',
+      '../src/css/font-manager.css'
     ];
 
     for (const file of cssFiles) {

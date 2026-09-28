@@ -605,15 +605,33 @@ export class DataStudio {
       return { valid: false, error: 'Invalid backup format: file does not contain a JSON object.' };
     }
 
+    // Accept the Settings-page backup dialect too: flat store arrays with
+    // { type:'careercanvas-full-backup', version:'1.0.0' }. Normalize it to
+    // the { stores } shape the preview + importer consume.
+    if (data.type === 'careercanvas-full-backup' && (!data.stores || typeof data.stores !== 'object')) {
+      const stores = {};
+      for (const [key, value] of Object.entries(data)) {
+        if (Array.isArray(value) && key !== 'data') stores[key] = value;
+      }
+      if (Object.keys(stores).length === 0) {
+        return { valid: false, error: 'Backup contains no store data.' };
+      }
+      data.stores = stores;
+    }
+
     if (data.version === undefined || data.version === null) {
       return { valid: false, error: 'Missing version field. This does not appear to be a CareerCanvas backup.' };
     }
 
-    if (typeof data.version !== 'number' || data.version < 1) {
+    if (typeof data.version !== 'number' && typeof data.version !== 'string') {
       return { valid: false, error: 'Invalid backup version: ' + data.version };
     }
 
-    if (data.version > BACKUP_VERSION) {
+    if (typeof data.version === 'number' && data.version < 1) {
+      return { valid: false, error: 'Invalid backup version: ' + data.version };
+    }
+
+    if (typeof data.version === 'number' && data.version > BACKUP_VERSION) {
       warnings.push('Backup version (' + data.version + ') is newer than the current app version (' + BACKUP_VERSION + '). Some data may not import correctly.');
     }
 

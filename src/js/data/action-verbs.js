@@ -7,14 +7,20 @@
 /** Past-tense action verbs suitable for starting resume bullets. */
 export const ACTION_VERBS = [
   'accelerated', 'achieved', 'administered', 'analyzed', 'architected', 'authored',
-  'automated', 'built', 'championed', 'completed', 'conducted', 'created',
-  'decreased', 'delivered', 'demonstrated', 'designed', 'developed', 'directed',
-  'drove', 'engineered', 'enhanced', 'established', 'executed', 'expanded',
-  'generated', 'grew', 'implemented', 'improved', 'increased', 'initiated',
-  'launched', 'led', 'managed', 'mentored', 'migrated', 'optimized', 'orchestrated',
-  'organized', 'oversaw', 'performed', 'pioneered', 'planned', 'produced',
-  'reduced', 'resolved', 'scaled', 'spearheaded', 'streamlined', 'strengthened',
-  'structured', 'supervised', 'transformed',
+  'automated', 'built', 'centralized', 'championed', 'collaborated', 'completed',
+  'conducted', 'consolidated', 'constructed', 'converted', 'created', 'curated',
+  'customized', 'debugged', 'decreased', 'delivered', 'demonstrated', 'designed',
+  'developed', 'devised', 'diagnosed', 'directed', 'drafted', 'drove',
+  'eliminated', 'empowered', 'engineered', 'enhanced', 'established', 'executed',
+  'expanded', 'expedited', 'formulated', 'fostered', 'generated', 'grew',
+  'guided', 'identified', 'illustrated', 'implemented', 'improved', 'increased',
+  'initiated', 'innovated', 'inspected', 'instituted', 'instructed', 'launched',
+  'led', 'managed', 'mentored', 'migrated', 'modernized', 'negotiated',
+  'optimized', 'orchestrated', 'organized', 'oversaw', 'performed', 'pioneered',
+  'planned', 'produced', 'reduced', 'refactored', 'resolved', 'restructured',
+  'scaled', 'spearheaded', 'standardized', 'streamlined', 'strengthened',
+  'structured', 'supervised', 'surpassed', 'synthesized', 'trained',
+  'transformed', 'validated',
 ];
 
 const ACTION_VERB_SET = new Set(ACTION_VERBS);
@@ -27,10 +33,21 @@ export const WEAK_STARTS = [
 
 /** Base-form verbs for matching job-description vocabulary (job-matcher categories). */
 export const MATCH_VERBS = [
-  'manage', 'develop', 'implement', 'design', 'lead', 'analyze', 'build', 'create',
-  'optimize', 'maintain', 'architect', 'deploy', 'integrate', 'automate', 'deliver',
-  'coordinate', 'establish', 'evaluate', 'facilitate', 'mentor', 'oversee',
-  'spearhead', 'streamline', 'transform',
+  'accelerate', 'achieve', 'administer', 'analyze', 'architect', 'automate',
+  'build', 'centralize', 'champion', 'collaborate', 'complete', 'conduct',
+  'consolidate', 'construct', 'convert', 'coordinate', 'create', 'curate',
+  'customize', 'debug', 'decrease', 'deliver', 'demonstrate', 'deploy',
+  'design', 'develop', 'devise', 'diagnose', 'direct', 'draft', 'drive',
+  'eliminate', 'empower', 'engineer', 'enhance', 'establish', 'evaluate',
+  'execute', 'expand', 'expedite', 'facilitate', 'formulate', 'foster',
+  'generate', 'grow', 'guide', 'identify', 'illustrate', 'implement',
+  'improve', 'increase', 'initiate', 'innovate', 'inspect', 'institute',
+  'instruct', 'integrate', 'launch', 'lead', 'maintain', 'manage', 'mentor',
+  'migrate', 'modernize', 'negotiate', 'optimize', 'orchestrate', 'organize',
+  'oversee', 'perform', 'pioneer', 'plan', 'produce', 'reduce', 'refactor',
+  'resolve', 'restructure', 'scale', 'spearhead', 'standardize', 'streamline',
+  'strengthen', 'structure', 'supervise', 'surpass', 'synthesize', 'train',
+  'transform', 'validate',
 ];
 
 const MATCH_VERB_SET = new Set(MATCH_VERBS);

@@ -88,7 +88,6 @@ The `Database` class provides:
 | `cc_auth_guest` | Guest mode flag | Not set | `'true'` |
 | `onboardingComplete` | Wizard completed | Not set | `'true'` |
 | `cc_verify_email` | Email for verification | Not set | Email string |
-| `cc_continueOnSelection` | Auto-advance in wizard | `false` | true/false |
 
 ### Tool/Studio Data
 

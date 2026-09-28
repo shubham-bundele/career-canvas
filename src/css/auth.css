@@ -568,10 +568,9 @@
   .auth-split-stat strong { font-size: 1.25rem; }
 }
 
-/* Override: when using split layout, hide the old centered hero */
-.auth-immersive .welcome-hero {
-  display: none;
-}
+/* Override: when using split layout, hide the old centered hero.
+   NOTE: only when `.auth-split` is present — the signup page uses
+   `.auth-immersive` + `.welcome-hero` WITHOUT split and must stay visible. */
 
 /* ===== Legacy Immersive Auth Pages ===== */
 .auth-immersive .auth-split ~ .welcome-hero {

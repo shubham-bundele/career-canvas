@@ -1,4 +1,4 @@
-import { createElement } from '../utils/sanitize.js';
+import { createElement, attachTiltEffect } from '../utils/sanitize.js';
 import authState, { AUTH_STATUS } from './auth-state.js';
 import { getAuthConfig, isAuthConfigured } from './auth-config.js';
 import * as authService from './auth-service.js';
@@ -201,9 +201,13 @@ export class AuthUI {
 
     const guestBtn = createElement('button', 'Continue as Guest', { class: 'welcome-btn welcome-btn--outline', type: 'button' });
     this.addListener(guestBtn, 'click', async () => {
-      authService.continueAsGuest();
-      if (window.CC?.app?.enterAfterAuth) await window.CC.app.enterAfterAuth();
-      else if (window.CC?.router) window.CC.router.navigate('/dashboard');
+      // Fresh guests start in the setup wizard; returning guests (with
+      // temporary docs) land on the dashboard. See app.enterAsGuest().
+      if (window.CC?.app?.enterAsGuest) await window.CC.app.enterAsGuest();
+      else {
+        authService.continueAsGuest();
+        if (window.CC?.router) window.CC.router.navigate('/dashboard');
+      }
     });
     cta.appendChild(guestBtn);
 
@@ -215,15 +219,15 @@ export class AuthUI {
       <div class="welcome-mode-card welcome-mode-card--guest">
         <div class="welcome-mode-icon">💻</div>
         <div class="welcome-mode-content">
-          <strong>Guest Mode (Local Only)</strong>
-          <p>All documents are saved in your browser on this device. Clearing browser data will remove them. Export regularly to keep backups.</p>
+          <strong>Guest Mode (Temporary)</strong>
+          <p>Try everything instantly — but guest resumes are temporary and will not be saved. Sign in to keep your work. Export a backup before clearing browser data.</p>
         </div>
       </div>
       <div class="welcome-mode-card welcome-mode-card--online">
         <div class="welcome-mode-icon">☁️</div>
         <div class="welcome-mode-content">
-          <strong>Sign In (Coming Soon)</strong>
-          <p>Create an account to access your profile across sessions. Cloud sync for documents will be available in a future update.</p>
+          <strong>Sign In (Saved Resumes)</strong>
+          <p>Create an account to save your resumes to your private cloud account and access them across devices. Guest work stays local and temporary.</p>
         </div>
       </div>
     `;
@@ -251,20 +255,9 @@ export class AuthUI {
       card.appendChild(t);
       const d = createElement('p', f.desc, { class: 'welcome-feature-desc' });
       card.appendChild(d);
-      this.addListener(card, 'mousemove', (e) => {
-        const rect = card.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        const cx = rect.width / 2, cy = rect.height / 2;
-        const rx = ((y - cy) / cy) * -8;
-        const ry = ((x - cx) / cx) * 8;
-        card.style.transform = `perspective(600px) rotateX(${rx}deg) rotateY(${ry}deg) translateY(-6px) scale(1.02)`;
-        card.style.setProperty('--spot-x', x + 'px');
-        card.style.setProperty('--spot-y', y + 'px');
-      });
-      this.addListener(card, 'mouseleave', () => {
-        card.style.transform = '';
-      });
+      const tilt = attachTiltEffect(card, {});
+      this.listeners.push({ element: card, event: 'mousemove', handler: tilt.onMove });
+      this.listeners.push({ element: card, event: 'mouseleave', handler: tilt.onLeave });
       features.appendChild(card);
     });
 
@@ -446,18 +439,10 @@ export class AuthUI {
     const guestBtn = createElement('button', '', { class: 'welcome-btn welcome-btn--outline auth-guest-btn', type: 'button' });
     guestBtn.innerHTML = '<span class="welcome-btn-icon">&#10132;</span> Continue as Guest';
     this.addListener(guestBtn, 'click', async () => {
-      authService.continueAsGuest();
-      const onboardingDone = localStorage.getItem('onboardingComplete');
-      let hasDocuments = false;
-      try {
-        if (window.CC?.db) { const docs = await window.CC.db.getAll('documents'); hasDocuments = docs && docs.length > 0; }
-      } catch (e) { /* ignore */ }
-      if (hasDocuments) {
-        localStorage.setItem('onboardingComplete', 'true');
-        if (window.CC?.router) window.CC.router.navigate('/dashboard');
-      } else if (!onboardingDone && window.CC?.app?.showOnboarding) {
-        window.CC.app.showOnboarding();
-      } else {
+      // Fresh guests start in the setup wizard (see app.enterAsGuest()).
+      if (window.CC?.app?.enterAsGuest) await window.CC.app.enterAsGuest();
+      else {
+        authService.continueAsGuest();
         if (window.CC?.router) window.CC.router.navigate('/dashboard');
       }
     });
@@ -481,7 +466,7 @@ export class AuthUI {
 
     // Privacy note
     const privacy = createElement('div', '', { class: 'auth-glass-privacy' });
-    privacy.innerHTML = '&#128274; Your data stays on this device. CareerCanvas never uploads your documents.';
+    privacy.innerHTML = '&#128274; Guest work stays on this device. Signed-in users&apos; resumes are saved to their private account.';
     rightPanel.appendChild(privacy);
 
     splitScreen.appendChild(rightPanel);
@@ -564,7 +549,17 @@ export class AuthUI {
     form.appendChild(formError);
 
     const submitBtn = createElement('button', 'Create Account', { class: 'welcome-btn welcome-btn--primary', type: 'submit' });
+    submitBtn.disabled = true;
+    submitBtn.title = 'Please agree to the Terms and Privacy Policy first';
     form.appendChild(submitBtn);
+
+    // The account can only be created after agreeing to Terms + Privacy.
+    this.addListener(termsCheck, 'change', () => {
+      submitBtn.disabled = !termsCheck.checked;
+      this._setFieldError(termsErr, '');
+      if (!termsCheck.checked) submitBtn.title = 'Please agree to the Terms and Privacy Policy first';
+      else submitBtn.removeAttribute('title');
+    });
 
     this.addListener(form, 'submit', async (e) => {
       e.preventDefault();
@@ -593,7 +588,19 @@ export class AuthUI {
       submitBtn.textContent = 'Create Account';
 
       if (result.error) {
-        formError.textContent = result.error.message;
+        // Repeated signup with an existing email returns 200 but Supabase
+        // deliberately sends NO email (anti-enumeration). Say so plainly —
+        // otherwise users wait for a message that will never arrive.
+        const msg = /already registered|already exists|already been registered/i.test(result.error.message || '')
+          ? 'An account with this email already exists and is confirmed. Please sign in instead — no new verification email is sent.'
+          : result.error.message;
+        formError.textContent = msg;
+        formError.style.display = 'block';
+        return;
+      }
+
+      if (result.alreadyRegistered) {
+        formError.textContent = 'An account with this email already exists. Please sign in instead — no new verification email is sent for existing accounts.';
         formError.style.display = 'block';
         return;
       }
@@ -617,16 +624,19 @@ export class AuthUI {
     card.appendChild(linkRow);
 
     const guestBtn = createElement('button', 'Continue as Guest', { class: 'welcome-btn welcome-btn--outline', type: 'button', style: 'margin-top: var(--space-3)' });
-    this.addListener(guestBtn, 'click', () => {
-      authService.continueAsGuest();
-      if (window.CC?.router) window.CC.router.navigate('/dashboard');
+    this.addListener(guestBtn, 'click', async () => {
+      if (window.CC?.app?.enterAsGuest) await window.CC.app.enterAsGuest();
+      else {
+        authService.continueAsGuest();
+        if (window.CC?.router) window.CC.router.navigate('/dashboard');
+      }
     });
     card.appendChild(guestBtn);
 
     hero.appendChild(card);
 
     const privacy = createElement('div', '', { class: 'auth-glass-privacy' });
-    privacy.innerHTML = '🔒 Your data stays on this device. No documents are uploaded.';
+    privacy.innerHTML = '🔒 Guest work stays on this device. Your account resumes are saved privately and synced.';
     hero.appendChild(privacy);
 
     this.container.appendChild(hero);
@@ -644,6 +654,9 @@ export class AuthUI {
 
     const info = createElement('p', 'Click the link in your email to verify your account. Check your spam folder if you don\'t see it.', { class: 'auth-card-body' });
     card.appendChild(info);
+
+    const existingNote = createElement('p', 'Already signed up before? Supabase never re-sends confirmation to an existing address — just sign in instead.', { class: 'auth-card-body' });
+    card.appendChild(existingNote);
 
     const resendBtn = this._button('Resend Verification Email', { variant: 'outline' });
     let cooldown = false;
@@ -666,7 +679,16 @@ export class AuthUI {
 
     const links = createElement('div', '', { class: 'auth-links' });
     links.appendChild(this._link('Return to Sign In', '/login'));
-    links.appendChild(this._link('Continue as Guest', '/dashboard'));
+    const guestLink = this._link('Continue as Guest', '/dashboard');
+    // Set the guest flag synchronously so the router guard lets this through,
+    // then run the standard guest entry (wizard for fresh guests).
+    this.addListener(guestLink, 'click', (e) => {
+      e.preventDefault();
+      authService.continueAsGuest();
+      if (window.CC?.app?.enterAsGuest) window.CC.app.enterAsGuest();
+      else if (window.CC?.router) window.CC.router.navigate('/dashboard');
+    });
+    links.appendChild(guestLink);
     card.appendChild(links);
 
     this.container.appendChild(card);
@@ -957,6 +979,10 @@ export class AuthUI {
       if (window.CC?.toast) window.CC.toast.show('Signed in successfully', 'success');
       if (window.CC?.router) window.CC.router.navigate(intended || '/dashboard');
     } else {
+      // Expired/invalid verification link: say so instead of a silent bounce.
+      if (result.error && window.CC?.toast) {
+        window.CC.toast.show(`${result.error}. Please request a new link.`, 'error', 8000);
+      }
       if (window.CC?.router) window.CC.router.navigate('/login');
     }
 

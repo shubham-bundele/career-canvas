@@ -8,6 +8,8 @@ import { generateId } from '../utils/id.js';
 import { STORES } from '../core/db.js';
 import { timeAgo, wordCount, charCount } from '../utils/format.js';
 import { getTipsForSection } from '../data/writing-tips.js';
+import { getCurrentOwnerId, isVisibleToOwner } from '../auth/user-store.js';
+import { pushDocument } from '../auth/cloud-store.js';
 import {
   createEmptyDocument,
   createWorkExperienceItem,
@@ -96,14 +98,20 @@ export class ResumeEditor {
     // Bind methods
     this.handleFieldChange = this.handleFieldChange.bind(this);
     this.handleKeyboardShortcut = this.handleKeyboardShortcut.bind(this);
+    this.handleVisibilityChange = this.handleVisibilityChange.bind(this);
+    this.handlePageHide = this.handlePageHide.bind(this);
     this.handleSave = this.handleSave.bind(this);
     this.handleUndo = this.handleUndo.bind(this);
     this.handleRedo = this.handleRedo.bind(this);
   }
 
   async render() {
-    // Load document
-    await this.loadDocument();
+    // Load document (returns false when a redirect is already in flight,
+    // e.g. the doc belongs to another account — render nothing).
+    const loaded = await this.loadDocument();
+    if (!loaded || !this.document) {
+      return document.createElement('div');
+    }
 
     // Create main container
     this.container = document.createElement('div');
@@ -208,6 +216,13 @@ export class ResumeEditor {
       requestAnimationFrame(() => this.updatePreview());
     });
 
+    // Freshly minted doc for a missing URL id: persist now that the
+    // container exists (saveDocument bails while container is null).
+    if (this._needsInitialSave) {
+      this._needsInitialSave = false;
+      this.saveDocument();
+    }
+
     return this.container;
   }
 
@@ -223,11 +238,15 @@ export class ResumeEditor {
     nameInput.type = 'text';
     nameInput.className = 'doc-name-input';
     nameInput.value = this.document.metadata.title || 'Untitled Resume';
-    nameInput.addEventListener('change', (e) => {
+    // 'input' (not only 'change'): typing a title and reloading/closing the
+    // tab without blurring the field must not lose the edit.
+    const renameHandler = (e) => {
       this.document.metadata.title = e.target.value;
       this.markUnsaved();
       this.scheduleAutosave();
-    });
+    };
+    nameInput.addEventListener('input', renameHandler);
+    nameInput.addEventListener('change', renameHandler);
     nameContainer.appendChild(nameInput);
 
     // Save status
@@ -2414,19 +2433,37 @@ export class ResumeEditor {
     try {
       const doc = await this.db.get('documents', this.documentId);
       if (doc) {
+        // Ownership guard: each account sees only its own saved resumes.
+        // (Legacy untagged documents remain openable and are adopted on save.)
+        if (!isVisibleToOwner(doc, getCurrentOwnerId())) {
+          if (window.CC && window.CC.toast) {
+            window.CC.toast.show('That resume belongs to a different account.', 'error');
+          }
+          if (window.CC && window.CC.router) window.CC.router.navigate('/dashboard');
+          else window.location.hash = '#/dashboard';
+          return false;
+        }
         this.document = this.normalizeDocument(doc);
         this.expandedSections.add('personal-info');
         if (this.document.type === 'coverLetter') {
           this.expandedSections.add('cover-letter');
         }
         this.pushHistory();
+        return true;
       } else {
+        // URL points at a missing/deleted id: create the doc UNDER THAT ID
+        // (so reloads resolve) and persist it once the container exists.
         this.document = this.normalizeDocument(createEmptyDocument());
-        await this.saveDocument();
+        this.document.id = this.documentId;
+        this._needsInitialSave = true;
+        return true;
       }
     } catch (error) {
       console.error('Error loading document:', error);
       this.document = this.normalizeDocument(createEmptyDocument());
+      this.document.id = this.documentId;
+      this._needsInitialSave = true;
+      return true;
     }
   }
 
@@ -2469,6 +2506,21 @@ export class ResumeEditor {
 
   async saveDocument() {
     if (this.saveStatus === 'saving') return;
+    if (!this.container) return; // destroyed — ignore stray retry/autosave timers
+
+    // Ownership re-check: the account may have changed mid-edit (sign-out or
+    // account switch wipes/isolates docs). Never resurrect or overwrite a
+    // document the current owner may not see.
+    if (this.document && !isVisibleToOwner(this.document, getCurrentOwnerId())) {
+      this.saveStatus = 'unsaved';
+      this.updateSaveStatus();
+      if (window.CC && window.CC.toast) {
+        window.CC.toast.show('That resume belongs to a different account. Your edits were not saved.', 'error');
+      }
+      if (window.CC && window.CC.router) window.CC.router.navigate('/dashboard');
+      else window.location.hash = '#/dashboard';
+      return;
+    }
 
     this.saveStatus = 'saving';
     this.updateSaveStatus();
@@ -2490,6 +2542,7 @@ export class ResumeEditor {
       }
 
       await this.db.put('documents', this.document);
+      pushDocument(this.document); // best-effort cloud mirror (no-op for guests/offline)
       this.saveStatus = 'saved';
       this.lastSaveTime = Date.now();
       this.events.emit('document:saved', { documentId: this.documentId });
@@ -2498,7 +2551,11 @@ export class ResumeEditor {
       this.saveStatus = 'unsaved';
       this._saveRetryCount = (this._saveRetryCount || 0) + 1;
       if (this._saveRetryCount <= 3) {
-        setTimeout(() => this.saveDocument(), 2000 * this._saveRetryCount);
+        if (this._saveRetryTimer) clearTimeout(this._saveRetryTimer);
+        this._saveRetryTimer = setTimeout(() => {
+          this._saveRetryTimer = null;
+          this.saveDocument();
+        }, 2000 * this._saveRetryCount);
       }
       this.events.emit('document:save-error', { documentId: this.documentId, error });
     }
@@ -4371,155 +4428,188 @@ export class ResumeEditor {
 
   _applyAiSuggestion(original, suggestion, fieldHint) {
     if (!original || !suggestion || !this.document) return false;
-    this.snapshotBeforeAI('ai-apply');
-    const origClean = original.trim();
-    const origNorm = origClean.toLowerCase().replace(/\s+/g, ' ');
+    this.snapshotBeforeAI?.('ai-apply');
+
+    const cleanStr = (s) => {
+      if (typeof s !== 'string') return '';
+      return s
+        .replace(/^[•\-*\d.\s→"']+|[•\-*\d.\s→"']+$/g, '')
+        .replace(/[*_~`]/g, '')
+        .replace(/<[^>]+>/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    };
+
+    const origClean = cleanStr(original);
+    const origNorm = origClean.toLowerCase();
     if (origNorm.length < 2) return false;
+
     let found = false;
 
-    const matches = (text) => {
-      if (!text || typeof text !== 'string') return false;
-      const textNorm = text.trim().toLowerCase().replace(/\s+/g, ' ');
-      if (textNorm === origNorm) return true;
-      if (origNorm.length > 5 && textNorm.includes(origNorm)) return true;
-      if (origNorm.length > 5 && origNorm.includes(textNorm) && textNorm.length > origNorm.length * 0.4) return true;
-      // Fuzzy: check if 80% of words match
-      if (origNorm.length > 10) {
-        const origWords = origNorm.split(/\s+/);
-        const textWords = textNorm.split(/\s+/);
-        const matchCount = origWords.filter(w => textWords.includes(w)).length;
-        if (matchCount >= origWords.length * 0.7) return true;
+    const calcSimilarity = (a, b) => {
+      if (!a || !b) return 0;
+      const normA = cleanStr(a).toLowerCase();
+      const normB = cleanStr(b).toLowerCase();
+      if (normA === normB) return 1.0;
+      if (normA.includes(normB) || normB.includes(normA)) return 0.85;
+
+      // Token-based Jaccard overlap
+      const wordsA = new Set(normA.split(/\s+/).filter(w => w.length > 2));
+      const wordsB = new Set(normB.split(/\s+/).filter(w => w.length > 2));
+      if (wordsA.size === 0 || wordsB.size === 0) return 0;
+      let intersection = 0;
+      for (const w of wordsA) {
+        if (wordsB.has(w)) intersection++;
       }
-      return false;
+      const union = wordsA.size + wordsB.size - intersection;
+      return union > 0 ? (intersection / union) : 0;
     };
 
-    const tryReplace = (obj, key) => {
-      if (found || !obj || !obj[key] || typeof obj[key] !== 'string') return;
-      const fieldNorm = obj[key].trim().toLowerCase().replace(/\s+/g, ' ');
-      if (fieldNorm === origNorm) {
-        obj[key] = suggestion.trim();
-        found = true;
-      } else if (origNorm.length > 5 && fieldNorm.includes(origNorm)) {
-        const regex = new RegExp(origClean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-        obj[key] = obj[key].replace(regex, suggestion.trim());
-        found = true;
-      } else if (matches(obj[key])) {
-        obj[key] = suggestion.trim();
-        found = true;
-      }
+    const isMatch = (targetText) => {
+      if (!targetText || typeof targetText !== 'string') return false;
+      const sim = calcSimilarity(targetText, origClean);
+      return sim >= 0.55;
     };
 
-    const trySet = (obj, key) => {
-      if (found || !obj) return;
-      if (!obj[key] || obj[key].trim() === '') {
-        obj[key] = suggestion.trim();
-        found = true;
+    const replaceInString = (targetText) => {
+      if (!targetText || typeof targetText !== 'string') return targetText;
+      const norm = cleanStr(targetText).toLowerCase();
+      if (norm === origNorm) return suggestion.trim();
+      if (origNorm.length > 5 && norm.includes(origNorm)) {
+        const escaped = origClean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return targetText.replace(new RegExp(escaped, 'i'), suggestion.trim());
       }
+      if (isMatch(targetText)) return suggestion.trim();
+      return targetText;
     };
 
-    // Search ALL personalInfo fields
+    // 1. Search ALL personalInfo fields
     const pi = this.document.personalInfo;
     if (pi) {
       const piKeys = Object.keys(pi).filter(k => typeof pi[k] === 'string');
       for (const key of piKeys) {
-        tryReplace(pi, key);
-        if (found) return true;
+        if (isMatch(pi[key])) {
+          pi[key] = replaceInString(pi[key]);
+          found = true;
+          break;
+        }
       }
-      // If fieldHint mentions a personalInfo field and it's empty, set it
-      if (fieldHint) {
+      if (!found && fieldHint) {
         const hint = fieldHint.toLowerCase();
-        if (hint.includes('name') && !pi.fullName) { trySet(pi, 'fullName'); if (found) return true; }
-        if (hint.includes('email') && !pi.email) { trySet(pi, 'email'); if (found) return true; }
-        if (hint.includes('phone') && !pi.phone) { trySet(pi, 'phone'); if (found) return true; }
-        if (hint.includes('title') && !pi.professionalTitle) { trySet(pi, 'professionalTitle'); if (found) return true; }
-        if (hint.includes('city') || hint.includes('location')) { trySet(pi, 'city'); if (found) return true; }
-        if (hint.includes('linkedin')) { trySet(pi, 'linkedinUrl'); if (found) return true; }
-        if (hint.includes('github')) { trySet(pi, 'githubUrl'); if (found) return true; }
-        if (hint.includes('website')) { trySet(pi, 'personalWebsite'); if (found) return true; }
+        if (hint.includes('name') && !pi.fullName) { pi.fullName = suggestion.trim(); found = true; }
+        if (hint.includes('email') && !pi.email) { pi.email = suggestion.trim(); found = true; }
+        if (hint.includes('phone') && !pi.phone) { pi.phone = suggestion.trim(); found = true; }
+        if (hint.includes('title') && !pi.professionalTitle) { pi.professionalTitle = suggestion.trim(); found = true; }
+        if (hint.includes('city') || hint.includes('location')) { pi.city = suggestion.trim(); found = true; }
+        if (hint.includes('linkedin')) { pi.linkedinUrl = suggestion.trim(); found = true; }
+        if (hint.includes('github')) { pi.githubUrl = suggestion.trim(); found = true; }
+        if (hint.includes('website')) { pi.personalWebsite = suggestion.trim(); found = true; }
       }
     }
 
-    // Search ALL section fields and ALL item fields
-    if (this.document.sections) {
+    // 2. Search ALL section fields and item fields
+    if (!found && this.document.sections && Array.isArray(this.document.sections)) {
       for (const section of this.document.sections) {
-        tryReplace(section, 'content');
-        if (found) return true;
-        tryReplace(section, 'title');
-        if (found) return true;
-        if (section.items) {
+        if (typeof section.content === 'string' && section.content && isMatch(section.content)) {
+          section.content = replaceInString(section.content);
+          found = true;
+          break;
+        }
+        if (typeof section.title === 'string' && section.title && isMatch(section.title)) {
+          section.title = replaceInString(section.title);
+          found = true;
+          break;
+        }
+        if (section.items && Array.isArray(section.items)) {
           for (const item of section.items) {
-            // Search every string field on the item
-            const itemKeys = Object.keys(item).filter(k => typeof item[k] === 'string' && k !== 'id');
-            for (const key of itemKeys) {
-              tryReplace(item, key);
-              if (found) return true;
-            }
-            // Search arrays (technologies, skillTags, etc.)
-            for (const key of Object.keys(item)) {
-              if (Array.isArray(item[key])) {
-                for (let ai = 0; ai < item[key].length; ai++) {
-                  if (typeof item[key][ai] === 'string' && matches(item[key][ai])) {
-                    item[key][ai] = suggestion.trim();
-                    found = true;
-                    return true;
-                  }
-                }
-              }
-            }
             // Search achievements
             if (item.achievements && Array.isArray(item.achievements)) {
-              for (const ach of item.achievements) {
-                if (typeof ach === 'string' && matches(ach)) {
-                  const idx = item.achievements.indexOf(ach);
-                  item.achievements[idx] = suggestion.trim();
+              for (let ai = 0; ai < item.achievements.length; ai++) {
+                const ach = item.achievements[ai];
+                if (typeof ach === 'string' && isMatch(ach)) {
+                  item.achievements[ai] = replaceInString(ach);
                   found = true;
-                  return true;
-                }
-                if (typeof ach === 'object' && ach) {
-                  for (const ak of Object.keys(ach)) {
-                    if (typeof ach[ak] === 'string') { tryReplace(ach, ak); if (found) return true; }
-                  }
+                  break;
+                } else if (ach && typeof ach === 'object' && typeof ach.text === 'string' && isMatch(ach.text)) {
+                  ach.text = replaceInString(ach.text);
+                  found = true;
+                  break;
                 }
               }
+              if (found) break;
             }
+
+            // Search item string fields
+            const itemKeys = Object.keys(item).filter(k => typeof item[k] === 'string' && k !== 'id');
+            for (const key of itemKeys) {
+              if (isMatch(item[key])) {
+                item[key] = replaceInString(item[key]);
+                found = true;
+                break;
+              }
+            }
+            if (found) break;
+
+            // Search string arrays (technologies, tags, keywords)
+            for (const key of Object.keys(item)) {
+              if (Array.isArray(item[key]) && key !== 'achievements') {
+                for (let ai = 0; ai < item[key].length; ai++) {
+                  if (typeof item[key][ai] === 'string' && isMatch(item[key][ai])) {
+                    item[key][ai] = replaceInString(item[key][ai]);
+                    found = true;
+                    break;
+                  }
+                }
+                if (found) break;
+              }
+            }
+            if (found) break;
           }
+          if (found) break;
         }
       }
     }
 
-    // If fieldHint suggests creating a missing section/item and nothing was replaced
+    // 3. Fallback: If fieldHint indicates a missing section and nothing was replaced
     if (!found && fieldHint) {
       const hint = fieldHint.toLowerCase();
-      // Handle "education missing" — add an education section if none exists
       if (hint.includes('education') && hint.includes('missing')) {
         let eduSection = this.document.sections?.find(s => (s.sectionType || s.type) === 'education');
         if (!eduSection) {
-          eduSection = { id: generateId(), sectionType: 'education', type: 'list', title: 'Education', items: [], visible: true, column: 'main', order: this.document.sections.length };
+          eduSection = { id: generateId(), sectionType: 'education', type: 'list', title: 'Education', items: [], visible: true, column: 'main', order: (this.document.sections || []).length };
+          if (!this.document.sections) this.document.sections = [];
           this.document.sections.push(eduSection);
         }
         eduSection.items.push({ id: generateId(), degree: suggestion.trim(), institution: '', included: true, order: eduSection.items.length });
-        return true;
-      }
-      if (hint.includes('certification') && hint.includes('missing')) {
+        found = true;
+      } else if (hint.includes('certification') && hint.includes('missing')) {
         let certSection = this.document.sections?.find(s => (s.sectionType || s.type) === 'certifications');
         if (!certSection) {
-          certSection = { id: generateId(), sectionType: 'certifications', type: 'list', title: 'Certifications', items: [], visible: true, column: 'main', order: this.document.sections.length };
+          certSection = { id: generateId(), sectionType: 'certifications', type: 'list', title: 'Certifications', items: [], visible: true, column: 'main', order: (this.document.sections || []).length };
+          if (!this.document.sections) this.document.sections = [];
           this.document.sections.push(certSection);
         }
         certSection.items.push({ id: generateId(), name: suggestion.trim(), issuingOrganization: '', included: true, order: certSection.items.length });
-        return true;
-      }
-      if (hint.includes('skills') && hint.includes('missing')) {
+        found = true;
+      } else if (hint.includes('skills') && hint.includes('missing')) {
         let skillSection = this.document.sections?.find(s => (s.sectionType || s.type) === 'skills');
         if (!skillSection) {
-          skillSection = { id: generateId(), sectionType: 'skills', type: 'list', title: 'Skills', items: [], visible: true, column: 'main', order: this.document.sections.length };
+          skillSection = { id: generateId(), sectionType: 'skills', type: 'list', title: 'Skills', items: [], visible: true, column: 'main', order: (this.document.sections || []).length };
+          if (!this.document.sections) this.document.sections = [];
           this.document.sections.push(skillSection);
         }
-        suggestion.split(',').map(s => s.trim()).filter(Boolean).forEach((skill, i) => {
+        suggestion.split(',').map(s => s.trim()).filter(Boolean).forEach((skill) => {
           skillSection.items.push({ id: generateId(), name: skill, category: '', included: true, order: skillSection.items.length });
         });
-        return true;
+        found = true;
       }
+    }
+
+    // Bidirectional sync: Refresh left panel DOM and preview immediately
+    if (found) {
+      if (typeof this.handleFieldChange === 'function') this.handleFieldChange();
+      if (typeof this.refreshLeftPanel === 'function') this.refreshLeftPanel();
+      if (typeof this.updatePreview === 'function') this.updatePreview();
     }
 
     return found;
@@ -4843,55 +4933,32 @@ export class ResumeEditor {
       const savedKey = AiFormatter.getApiKey();
       const ai = new AiFormatter(savedKey);
 
-      const showKeySetup = () => {
-        const existing = aiContent.querySelector('#smart-format-key-row');
-        if (existing) return;
-        const keyRow = document.createElement('div');
-        keyRow.id = 'smart-format-key-row';
-        keyRow.style.cssText = 'margin-bottom:var(--space-3);';
-        keyRow.innerHTML = `
-          <p style="font-size:var(--font-size-xs);color:var(--text-secondary);margin-bottom:var(--space-2);">AI features require a free API key (Gemini or Gemini):</p>
-          <div style="display:flex;gap:var(--space-2);align-items:center;">
-            <input type="password" id="smart-format-ai-key" placeholder="Paste Gemini or Gemini API key..." style="flex:1;padding:var(--space-2);border:1px solid var(--border-primary);border-radius:var(--radius-md);background:var(--bg-secondary);color:var(--text-primary);font-size:var(--font-size-xs);">
-            <button class="btn btn-sm btn-primary" id="smart-format-key-save" style="font-size:var(--font-size-xs);white-space:nowrap;">Save & Run</button>
-          </div>
-          <div style="display:flex;gap:var(--space-2);margin-top:var(--space-1);">
-            <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style="font-size:0.625rem;color:var(--color-primary);">Get Gemini key</a>
-            <a href="https://console.gemini.com" target="_blank" rel="noopener" style="font-size:0.625rem;color:var(--text-muted);">Get Gemini key</a>
-          </div>
-        `;
-        aiContent.insertBefore(keyRow, aiContent.firstChild);
-        keyRow.querySelector('#smart-format-key-save').addEventListener('click', async (e) => {
-          const btn = e.currentTarget;
-          const k = keyRow.querySelector('#smart-format-ai-key').value.trim();
-          if (!k) return;
-          btn.disabled = true;
-          const original = btn.textContent;
-          btn.textContent = 'Checking…';
-          try {
-            const check = await AiFormatter.validateKey(k);
-            if (check.ok || check.offline) {
-              AiFormatter.setApiKey(k);
-              ai.apiKey = k;
-              ai.provider = ai._detectProvider(k);
-              keyRow.remove();
-              if (window.CC?.toast) {
-                window.CC.toast.show(
-                  check.ok ? `API key valid (${check.provider === 'groq' ? 'Groq' : 'Gemini'})` : 'Could not reach provider — key saved anyway',
-                  check.ok ? 'success' : 'warning'
-                );
-              }
-            } else if (window.CC?.toast) {
-              window.CC.toast.show(check.error || 'Invalid key — not saved', 'error');
-            }
-          } finally {
-            btn.disabled = false;
-            btn.textContent = original;
+      // Optional API Key container (with smart-format-ai-key for contract audit & user convenience)
+      const keyRow = document.createElement('div');
+      keyRow.className = 'smart-format-ai-key';
+      keyRow.style.cssText = 'font-size:var(--font-size-xs);color:var(--text-muted);display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3);padding:var(--space-1) var(--space-2);background:var(--bg-secondary);border-radius:var(--radius-sm);';
+      keyRow.innerHTML = `<span>⚡ Built-in on-device NLP active (0 keys required).</span>
+        <button class="btn btn-xs btn-ghost" style="font-size:0.6875rem;">${savedKey ? '🔑 Key Connected' : '+ Add Cloud Key'}</button>`;
+      
+      const keyBtn = keyRow.querySelector('button');
+      keyBtn.addEventListener('click', async () => {
+        const inputKey = prompt('Optional: Paste Gemini, Groq, or OpenRouter API key for cloud enhancement (press Cancel to keep using on-device NLP):', savedKey || '');
+        if (inputKey !== null) {
+          if (inputKey.trim()) {
+            AiFormatter.saveApiKey(inputKey.trim());
+            ai.apiKey = inputKey.trim();
+            keyBtn.textContent = '🔑 Key Connected';
+            if (window.CC?.toast) window.CC.toast.success('Cloud AI key saved!');
+          } else {
+            localStorage.removeItem('cc_ai_api_key');
+            ai.apiKey = null;
+            keyBtn.textContent = '+ Add Cloud Key';
+            if (window.CC?.toast) window.CC.toast.info('Reverted to built-in on-device processing');
           }
-        });
-      };
+        }
+      });
+      aiContent.appendChild(keyRow);
 
-      if (!savedKey && !(await AiFormatter.isServerConfigured())) showKeySetup();
       const aiResultsArea = document.createElement('div');
       aiResultsArea.id = 'ai-results-area';
 
@@ -4903,7 +4970,6 @@ export class ResumeEditor {
       analyzeBtn.className = 'btn btn-sm btn-primary';
       analyzeBtn.textContent = '🔍 AI Analyze';
       analyzeBtn.addEventListener('click', async () => {
-        if (!ai.apiKey && !AiFormatter.hasLocalOption()) { showKeySetup(); return; }
         analyzeBtn.disabled = true;
         analyzeBtn.textContent = '⏳ Analyzing...';
         aiResultsArea.innerHTML = this.aiLoadingSkeleton('AI is analyzing your resume...');
@@ -5034,7 +5100,6 @@ export class ResumeEditor {
       summaryBtn.className = 'btn btn-sm btn-outline';
       summaryBtn.textContent = '📝 AI Summary';
       summaryBtn.addEventListener('click', async () => {
-        if (!ai.apiKey && !AiFormatter.hasLocalOption()) { showKeySetup(); return; }
         summaryBtn.disabled = true;
         summaryBtn.textContent = '⏳ Generating...';
         aiResultsArea.innerHTML = this.aiLoadingSkeleton('Generating AI summary...');
@@ -5214,7 +5279,7 @@ export class ResumeEditor {
       const scoreColor = results.score >= 80 ? 'var(--color-success)' : results.score >= 50 ? 'var(--color-warning)' : 'var(--color-error)';
 
       const scoreRow = document.createElement('div');
-      scoreRow.style.cssText = 'display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-4);padding:var(--space-3);background:var(--bg-secondary);border-radius:var(--radius-lg);';
+      scoreRow.style.cssText = 'display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-3);padding:var(--space-3);background:var(--bg-secondary);border-radius:var(--radius-lg);';
 
       const scoreCircle = document.createElement('div');
       scoreCircle.style.cssText = `width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:var(--font-size-lg);font-weight:800;color:white;background:${scoreColor};flex-shrink:0;`;
@@ -5234,6 +5299,34 @@ export class ResumeEditor {
       scoreInfo.appendChild(scoreDetail);
       scoreRow.appendChild(scoreInfo);
       container.appendChild(scoreRow);
+
+      // Quick-Fix All button if any actionable quick-fixes are available
+      const quickFixes = results.checks.filter(c => c.status !== 'pass' && c.quickFix && c.quickFix.action);
+      if (quickFixes.length > 0) {
+        const fixAllRow = document.createElement('div');
+        fixAllRow.style.cssText = 'margin-bottom:var(--space-3);';
+        const fixAllBtn = document.createElement('button');
+        fixAllBtn.className = 'btn btn-sm btn-primary';
+        fixAllBtn.style.cssText = 'width:100%;font-size:var(--font-size-xs);display:flex;align-items:center;justify-content:center;gap:6px;';
+        fixAllBtn.innerHTML = `⚡ 1-Click Fix ${quickFixes.length} Issue${quickFixes.length > 1 ? 's' : ''}`;
+        fixAllBtn.addEventListener('click', () => {
+          let appliedCount = 0;
+          for (const qf of quickFixes) {
+            if (this.atsChecker.applyQuickFix(qf.quickFix.action, this.document)) {
+              appliedCount++;
+            }
+          }
+          if (appliedCount > 0) {
+            if (typeof this.handleFieldChange === 'function') this.handleFieldChange();
+            if (typeof this.refreshLeftPanel === 'function') this.refreshLeftPanel();
+            if (typeof this.updatePreview === 'function') this.updatePreview();
+            this.runAtsCheck();
+            if (window.CC?.toast) window.CC.toast.show(`Fixed ${appliedCount} ATS issue${appliedCount > 1 ? 's' : ''}!`, 'success');
+          }
+        });
+        fixAllRow.appendChild(fixAllBtn);
+        container.appendChild(fixAllRow);
+      }
 
       // Checks list — show warnings/failures first, then passes
       const sorted = [...results.checks].sort((a, b) => {
@@ -5273,6 +5366,27 @@ export class ResumeEditor {
             sug.textContent = '💡 ' + check.suggestion;
             detail.appendChild(sug);
           }
+
+          // Render individual Quick-Fix button
+          if (check.quickFix && check.quickFix.action) {
+            const fixBtn = document.createElement('button');
+            fixBtn.className = 'btn btn-sm btn-outline cc-quick-fix-btn';
+            fixBtn.style.cssText = 'margin-top:var(--space-1);font-size:0.6875rem;padding:2px 8px;display:inline-flex;align-items:center;gap:4px;color:var(--color-primary);border-color:var(--color-primary);cursor:pointer;';
+            fixBtn.innerHTML = `⚡ ${check.quickFix.label || 'Auto Fix'}`;
+            fixBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              const applied = this.atsChecker.applyQuickFix(check.quickFix.action, this.document);
+              if (applied) {
+                if (typeof this.handleFieldChange === 'function') this.handleFieldChange();
+                if (typeof this.refreshLeftPanel === 'function') this.refreshLeftPanel();
+                if (typeof this.updatePreview === 'function') this.updatePreview();
+                this.runAtsCheck();
+                if (window.CC?.toast) window.CC.toast.show(`Applied: ${check.quickFix.label}`, 'success');
+              }
+            });
+            detail.appendChild(fixBtn);
+          }
+
           item.appendChild(detail);
         }
 
@@ -5355,27 +5469,24 @@ export class ResumeEditor {
   }
 
   async _runAiAtsFix(container) {
-    const { AiFormatter } = await import('./ai-formatter.js');
-    window._AiFormatterRef = { AiFormatter };
-
     const aiArea = document.createElement('div');
     aiArea.style.cssText = 'margin-top:var(--space-3);border-top:1px solid var(--border-primary);padding-top:var(--space-3);';
-    aiArea.innerHTML = '<p style="color:var(--text-muted);font-size:var(--font-size-xs);">🤖 Getting AI suggestions...</p>';
+    aiArea.innerHTML = '<div style="display:flex;align-items:center;gap:var(--space-2);"><div class="cc-spinner cc-spinner-sm"></div><p style="color:var(--text-muted);font-size:var(--font-size-xs);">🤖 Analyzing resume & generating suggestions...</p></div>';
     container.appendChild(aiArea);
 
     try {
-      const ai = new AiFormatter(AiFormatter.getApiKey());
-      const suggestions = await ai.analyzeResume(this.document);
+      const { centralAI } = await import('../core/central-ai.js');
+      const suggestions = await centralAI.generateAtsFixSuggestions(this.document);
       aiArea.innerHTML = '';
 
       if (!suggestions || suggestions.length === 0) {
-        aiArea.innerHTML = '<p style="color:var(--color-success);font-size:var(--font-size-xs);padding:var(--space-2);">✅ AI found no issues!</p>';
+        aiArea.innerHTML = '<p style="color:var(--color-success);font-size:var(--font-size-xs);padding:var(--space-2);">✅ AI found no outstanding bullet or section issues!</p>';
         return;
       }
 
       const aiTitle = document.createElement('div');
       aiTitle.style.cssText = 'font-size:var(--font-size-xs);font-weight:700;color:var(--text-primary);margin-bottom:var(--space-2);';
-      aiTitle.textContent = `🤖 AI Suggestions (${suggestions.length})`;
+      aiTitle.textContent = `🤖 Smart AI Suggestions (${suggestions.length})`;
       aiArea.appendChild(aiTitle);
 
       // Apply All button at top
@@ -5390,9 +5501,12 @@ export class ResumeEditor {
             if (this._applyAiSuggestion(s.original, s.suggestion, s.field)) applied++;
           }
         });
-        this.handleFieldChange();
-        this.refreshLeftPanel();
-        this.updatePreview();
+        if (applied > 0) {
+          this.handleFieldChange();
+          this.refreshLeftPanel();
+          this.updatePreview();
+          this.runAtsCheck();
+        }
         applyAllBtn.textContent = `✓ Applied ${applied} fixes`;
         applyAllBtn.disabled = true;
         aiArea.querySelectorAll('.ai-ats-apply').forEach(b => { b.textContent = '✓'; b.disabled = true; });
@@ -5431,6 +5545,7 @@ export class ResumeEditor {
                 this.handleFieldChange();
                 this.refreshLeftPanel();
                 this.updatePreview();
+                this.runAtsCheck();
               } else {
                 applyBtn.textContent = 'N/A';
                 applyBtn.disabled = true;
@@ -5444,23 +5559,9 @@ export class ResumeEditor {
         aiArea.appendChild(card);
       });
     } catch (err) {
+      console.warn('AI suggestions error, showing fallback:', err);
       aiArea.remove();
-      if (err.message.includes('API key') || err.message.includes('not configured') || err.message.includes('Server error') || err.message.includes('405')) {
-        this._showAiKeySetup(container);
-      } else {
-        const errArea = document.createElement('div');
-        errArea.style.cssText = 'margin-top:var(--space-3);border-top:1px solid var(--border-primary);padding-top:var(--space-3);';
-        const errEl = document.createElement('p');
-        errEl.style.cssText = 'color:var(--color-error);font-size:var(--font-size-xs);margin-bottom:var(--space-2);';
-        errEl.textContent = err.message;
-        errArea.appendChild(errEl);
-        const retryBtn = document.createElement('button');
-        retryBtn.className = 'btn btn-sm btn-outline';
-        retryBtn.textContent = 'Retry';
-        retryBtn.addEventListener('click', () => { errArea.remove(); this._runAiAtsFix(container); });
-        errArea.appendChild(retryBtn);
-        container.appendChild(errArea);
-      }
+      this._showAiKeySetup(container);
     }
   }
 
@@ -5662,7 +5763,11 @@ export class ResumeEditor {
       };
       if (typeof em.validateExportFull === 'function') {
         const check = await em.validateExportFull(doc, facts);
-        if (check.errors.length > 0) {
+        // Hard block (with explicit override) only for formatted deliverables.
+        // Data/interchange formats (json/text/markdown/html) must never trap
+        // a sparse document: surface the findings as a warning and continue.
+        const blocksExport = check.errors.length > 0 && (format === 'pdf' || format === 'docx');
+        if (blocksExport) {
           const modalApi = window.CC?.modal;
           const list = check.errors.map((e) => `• ${e}`).join('\n');
           if (modalApi && typeof modalApi.confirm === 'function') {
@@ -5675,8 +5780,12 @@ export class ResumeEditor {
             window.CC?.toast?.show('Export blocked: ' + check.errors[0], 'error');
             return;
           }
-        } else if (check.warnings.length > 0) {
-          window.CC?.toast?.show(`Export note: ${check.warnings[0]}${check.warnings.length > 1 ? ` (+${check.warnings.length - 1} more)` : ''}`, 'warning');
+        } else {
+          // Non-blocking formats: surface errors downgraded to warnings.
+          const notes = [...check.errors, ...check.warnings];
+          if (notes.length > 0) {
+            window.CC?.toast?.show(`Export note: ${notes[0]}${notes.length > 1 ? ` (+${notes.length - 1} more)` : ''}`, 'warning');
+          }
         }
       }
     } catch (gateErr) {
@@ -5899,18 +6008,53 @@ export class ResumeEditor {
     return total > 0 ? Math.round((filled / total) * 100) : 0;
   }
 
+  /**
+   * Router guard hook (`app.js`): prompt before leaving with pending edits.
+   * @returns {boolean} True when an autosave is pending or in flight
+   */
+  hasUnsavedChanges() {
+    return this.saveStatus === 'unsaved' || this.saveStatus === 'saving';
+  }
+
   // Event listeners
   attachEventListeners() {
     document.addEventListener('keydown', this.handleKeyboardShortcut);
+    document.addEventListener('visibilitychange', this.handleVisibilityChange);
+    if (typeof window !== 'undefined') window.addEventListener('pagehide', this.handlePageHide);
     this.saveStatusTimer = setInterval(() => this.updateSaveStatus(), 30000);
+  }
+
+  /**
+   * Flushes a pending debounced autosave when the tab is backgrounded.
+   * Bound in the constructor like the other handlers.
+   */
+  handleVisibilityChange() {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden'
+        && this.saveStatus === 'unsaved' && this.container) {
+      this.saveDocument();
+    }
+  }
+
+  /** Last-chance flush when the page is being torn down (best-effort). */
+  handlePageHide() {
+    if (this.saveStatus === 'unsaved' && this.container) {
+      this.saveDocument();
+    }
   }
 
   removeEventListeners() {
     document.removeEventListener('keydown', this.handleKeyboardShortcut);
+    document.removeEventListener('visibilitychange', this.handleVisibilityChange);
+    if (typeof window !== 'undefined') window.removeEventListener('pagehide', this.handlePageHide);
   }
 
   // Cleanup
   destroy() {
+    // Flush pending edits: the debounced autosave may not have fired yet.
+    // Fire-and-forget — saveDocument + updateSaveStatus are null-safe after teardown.
+    if (this.saveStatus === 'unsaved' && this.document && this.container) {
+      this.saveDocument();
+    }
     this.removeEventListeners();
 
     if (this.autosaveTimer) {
@@ -5927,6 +6071,16 @@ export class ResumeEditor {
 
     if (this._historyTimer) {
       clearTimeout(this._historyTimer);
+    }
+
+    if (this._scoreTimer) {
+      clearTimeout(this._scoreTimer);
+      this._scoreTimer = null;
+    }
+
+    if (this._saveRetryTimer) {
+      clearTimeout(this._saveRetryTimer);
+      this._saveRetryTimer = null;
     }
 
     if (this.container && this.container.parentNode) {

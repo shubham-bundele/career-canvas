@@ -3,6 +3,9 @@ node_modules/
 Thumbs.db
 *.log
 .env
+.env.local
 .vscode/
 .idea/
 .local-backup/
+# Local-dev Supabase override (real keys, never commit)
+src/js/auth/local-config.js

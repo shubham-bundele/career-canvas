@@ -165,8 +165,7 @@ describe('location header-leak (PDF line joining)', () => {
   });
 });
 
-describe('titleFromFilename', () => {
-  it('extracts title from "Name - Title Resume.pdf"', () => {
+describe('titleFromFilename', () => {  it('extracts title from "Name - Title Resume.pdf"', () => {
     expect(titleFromFilename('Shubham Bundele - Playwright Automation Engineer & SDET Resume.pdf'))
       .toBe('Playwright Automation Engineer & SDET');
   });
@@ -192,5 +191,20 @@ describe('title detection', () => {
       { filename: 'Jane Doe - Senior QA Engineer Resume.pdf' }
     );
     expect(out.title).toBe('Senior QA Engineer');
+  });
+});
+
+describe('name protection (never auto-correct names)', () => {
+  it('keeps the raw first line verbatim even when it resembles a vocabulary word', () => {
+    // Regression: spell-correction rewrote "Jane Doe" to "June Doe".
+    const out = parseResumeLocal('Jane Doe\nSenior Engineer\njane@example.com\nBuilt distributed systems for 5 years.');
+    expect(out.name).toBe('Jane Doe');
+    expect(out.title).toBe('Senior Engineer');
+    expect(out.email).toBe('jane@example.com');
+  });
+  it('does not leak the corrected name line into section content', () => {
+    const out = parseResumeLocal('Jane Doe\nSenior Engineer\njane@example.com\nBuilt distributed systems for 5 years.');
+    const all = out.sections.map((s) => s.content.join(' ')).join(' ');
+    expect(all).not.toMatch(/Jane Doe|June Doe/);
   });
 });

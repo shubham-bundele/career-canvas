@@ -1,0 +1,19 @@
+{
+  "name": "CareerCanvas — Free Resume Builder",
+  "short_name": "CareerCanvas",
+  "description": "Free, privacy-first, local-first resume, CV, and cover-letter builder. No paywall, no watermark, no registration required.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f172a",
+  "theme_color": "#1a56db",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

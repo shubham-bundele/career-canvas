@@ -193,9 +193,13 @@ export function stripHTML(html) {
     return '';
   }
 
-  const div = document.createElement('div');
-  div.innerHTML = html;
-  return div.textContent || div.innerText || '';
+  if (typeof document !== 'undefined' && document.createElement) {
+    const div = document.createElement('div');
+    div.innerHTML = html;
+    return div.textContent || div.innerText || '';
+  }
+
+  return String(html).replace(/<[^>]*>/g, '').trim();
 }
 
 /**
@@ -269,6 +273,78 @@ export function createElement(tagName, text = '', attributes = {}) {
   }
 
   return element;
+}
+
+/**
+ * Attaches a settled 3D-tilt + spotlight hover effect to a card.
+ *
+ * Two deliberate behaviors (both differ from a naive per-mousemove transform):
+ * - Updates apply at most once per animation frame, so fast pointer movement
+ *   doesn't cause style churn.
+ * - When the pointer stops moving, no further transforms are applied, so the
+ *   card settles — this keeps it clickable for automation/assistive tech
+ *   (a card that moves under the cursor forever can never receive a click).
+ * - The effect is skipped entirely under `prefers-reduced-motion` or the
+ *   app's `.reduce-motion` setting.
+ *
+ * @param {HTMLElement} card - Card element to enhance
+ * @param {Object} [opts]
+ * @param {number} [opts.max=8] - Max rotation in degrees
+ * @param {number} [opts.perspective=600]
+ * @param {number} [opts.lift=-6] - translateY in px (0 to disable)
+ * @param {number} [opts.scale=1.02]
+ * @returns {{ onMove: Function, onLeave: Function }} Handlers (for listener bookkeeping)
+ */
+export function attachTiltEffect(card, { max = 8, perspective = 600, lift = -6, scale = 1.02 } = {}) {
+  let raf = 0;
+  let lastX = -1;
+  let lastY = -1;
+
+  const motionOK = () => {
+    try {
+      if (typeof document !== 'undefined' && document.documentElement.classList.contains('reduce-motion')) return false;
+      if (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
+    } catch { /* ignore */ }
+    return true;
+  };
+
+  const onMove = (e) => {
+    if (!motionOK()) return;
+    if (e.clientX === lastX && e.clientY === lastY) return;
+    if (raf) return;
+    const px = e.clientX;
+    const py = e.clientY;
+    raf = requestAnimationFrame(() => {
+      raf = 0;
+      lastX = px;
+      lastY = py;
+      const rect = card.getBoundingClientRect();
+      const x = px - rect.left;
+      const y = py - rect.top;
+      const cx = rect.width / 2;
+      const cy = rect.height / 2;
+      if (!cx || !cy) return;
+      const rx = ((y - cy) / cy) * -max;
+      const ry = ((x - cx) / cx) * max;
+      card.style.transform = `perspective(${perspective}px) rotateX(${rx}deg) rotateY(${ry}deg) translateY(${lift}px) scale(${scale})`;
+      card.style.setProperty('--spot-x', `${x}px`);
+      card.style.setProperty('--spot-y', `${y}px`);
+    });
+  };
+
+  const onLeave = () => {
+    if (raf) {
+      cancelAnimationFrame(raf);
+      raf = 0;
+    }
+    lastX = -1;
+    lastY = -1;
+    card.style.transform = '';
+  };
+
+  card.addEventListener('mousemove', onMove);
+  card.addEventListener('mouseleave', onLeave);
+  return { onMove, onLeave };
 }
 
 /**

@@ -18,7 +18,8 @@ const PATTERN_TYPES = {
   EMAIL: 'email',
   ADDRESS: 'address',
   GOVERNMENT_ID: 'governmentId',
-  PRIVATE_URL: 'privateUrl'
+  PRIVATE_URL: 'privateUrl',
+  API_KEY: 'apiKey'
 };
 
 /**
@@ -29,7 +30,8 @@ const PATTERN_LABELS = {
   [PATTERN_TYPES.EMAIL]: 'Email Address',
   [PATTERN_TYPES.ADDRESS]: 'Street Address',
   [PATTERN_TYPES.GOVERNMENT_ID]: 'Government ID',
-  [PATTERN_TYPES.PRIVATE_URL]: 'Private/Internal URL'
+  [PATTERN_TYPES.PRIVATE_URL]: 'Private/Internal URL',
+  [PATTERN_TYPES.API_KEY]: 'API Key / Secret Token'
 };
 
 /**
@@ -40,7 +42,8 @@ const PATTERN_COLORS = {
   [PATTERN_TYPES.EMAIL]: '#7c3aed',
   [PATTERN_TYPES.ADDRESS]: '#059669',
   [PATTERN_TYPES.GOVERNMENT_ID]: '#dc2626',
-  [PATTERN_TYPES.PRIVATE_URL]: '#d97706'
+  [PATTERN_TYPES.PRIVATE_URL]: '#d97706',
+  [PATTERN_TYPES.API_KEY]: '#e11d48'
 };
 
 /**
@@ -51,7 +54,8 @@ const DEFAULT_PLACEHOLDERS = {
   [PATTERN_TYPES.EMAIL]: '[EMAIL]',
   [PATTERN_TYPES.ADDRESS]: '[ADDRESS]',
   [PATTERN_TYPES.GOVERNMENT_ID]: '[ID]',
-  [PATTERN_TYPES.PRIVATE_URL]: '[URL]'
+  [PATTERN_TYPES.PRIVATE_URL]: '[URL]',
+  [PATTERN_TYPES.API_KEY]: '[REDACTED_SECRET]'
 };
 
 /**
@@ -86,6 +90,9 @@ const DETECTION_PATTERNS = {
     /https?:\/\/[^\s]*(?:internal|intranet|private|corp\.|\.local)[^\s]*/gi,
     /https?:\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}[^\s]*/g,
     /https?:\/\/(?:10|172\.(?:1[6-9]|2\d|3[01])|192\.168)\.\d{1,3}\.\d{1,3}[^\s]*/g
+  ],
+  [PATTERN_TYPES.API_KEY]: [
+    /(?:sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{36}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z\-_]{35})/g
   ]
 };
 
@@ -354,7 +361,15 @@ export class PrivacyStudio {
         const fieldPath = `${pathPrefix}.${key}`;
         const location = `${locationPrefix} > ${this.formatFieldName(key)}`;
         this.scanString(value, fieldPath, location, findings);
-      } else if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      } else if (Array.isArray(value)) {
+        value.forEach((elem, elemIdx) => {
+          if (typeof elem === 'string' && elem.trim().length > 0) {
+            this.scanString(elem, `${pathPrefix}.${key}[${elemIdx}]`, `${locationPrefix} > ${this.formatFieldName(key)} #${elemIdx + 1}`, findings);
+          } else if (typeof elem === 'object' && elem !== null) {
+            this.scanObject(elem, `${pathPrefix}.${key}[${elemIdx}]`, `${locationPrefix} > ${this.formatFieldName(key)} #${elemIdx + 1}`, findings);
+          }
+        });
+      } else if (typeof value === 'object' && value !== null) {
         this.scanObject(value, `${pathPrefix}.${key}`, `${locationPrefix} > ${this.formatFieldName(key)}`, findings);
       }
     }

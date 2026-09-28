@@ -963,6 +963,25 @@
   }
 }
 
+/* ===== Owner Banner (guest vs signed-in) ===== */
+.dashboard-owner-banner {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(99, 102, 241, 0.12));
+  border: 1px solid var(--color-primary, #3b82f6);
+  border-radius: var(--radius-xl);
+  padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-5);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.dashboard-owner-banner-text {
+  flex: 1 1 240px;
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  line-height: var(--line-height-relaxed);
+}
+
 /* ===== Storage Info ===== */
 .dashboard-duplicates {
   background: var(--color-warning-bg, #fef3c7);

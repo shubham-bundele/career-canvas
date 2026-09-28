@@ -1,5 +1,5 @@
 @echo off
-cd /d "d:\Projects\experiment\Career Canvas"
+cd /d "%~dp0.."
 start "" cmd /c "npx http-server . -p 8080 --cors -c-1"
 timeout /t 3 /nobreak >NUL
 echo Opening browser...

@@ -240,6 +240,11 @@ const SPELL_WORDS = [
   'additional', 'information', 'contact', 'address', 'phone', 'email',
   'linkedin', 'github', 'website', 'location', 'available', 'willing',
   'remote', 'hybrid', 'onsite', 'bachelor’s', 'master’s',
+  'contrast', 'load', 'cloud', 'server', 'database', 'infrastructure', 'backend', 'frontend', 'fullstack',
+  'accessibility', 'virtual', 'headless', 'configuration', 'configurations', 'framework', 'frameworks',
+  'pipeline', 'pipelines', 'repository', 'architecture', 'microservices', 'kubernetes', 'docker', 'agile',
+  'scrum', 'traceability', 'matrix', 'matrices', 'regression', 'integration', 'acceptance', 'playwright',
+  'selenium', 'postman', 'grafana', 'jmeter', 'cypress', 'jenkins', 'typescript', 'javascript', 'python',
 ];
 
 const SPELL_SET = new Set(SPELL_WORDS);
@@ -367,7 +372,7 @@ export function splitSkills(text) {
   if (!text) return [];
   const seen = new Set();
   const out = [];
-  for (const part of String(text).split(/[\n•·▪◆●○■|/;]+/)) {
+  for (const part of String(text).split(/[\n•·▪◆●○■|;/]+/)) {
     for (const sub of part.split(/,(?![^(]*\))/)) {
       const s = sub.replace(/^[-–—*+\s]+/, '').trim();
       if (!s || s.length > 60) continue;

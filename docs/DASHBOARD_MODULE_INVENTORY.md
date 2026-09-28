@@ -13,7 +13,7 @@
 | Control | ID | Status |
 |---------|-----|--------|
 | Experience Calculator | btn-exp-calc | Working (PRESERVE) |
-| + New Document | btn-new-document | Working (creates doc via modal) |
+| + New Document (header) | btn-new-document | REMOVED — redundant with dashboard New Resume/CV/Cover Letter actions |
 | Theme Toggle | btn-theme-toggle | Working |
 
 ## Dashboard Features

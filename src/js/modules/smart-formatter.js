@@ -7,6 +7,21 @@ import { WEAK_STARTS, ACTION_VERBS as STRONG_VERBS } from '../data/action-verbs.
 
 const SEVERITY = { ERROR: 'error', WARNING: 'warning', INFO: 'info' };
 
+const COMMON_TYPOS = {
+  'teh': 'the',
+  'seperate': 'separate',
+  'definately': 'definitely',
+  'recieved': 'received',
+  'managment': 'management',
+  'developement': 'development',
+  'responisble': 'responsible',
+  'implimented': 'implemented',
+  'enviroment': 'environment',
+  'maintainence': 'maintenance',
+  'occurrance': 'occurrence',
+  'calender': 'calendar'
+};
+
 export class SmartFormatter {
 
   analyze(doc) {
@@ -254,6 +269,19 @@ export class SmartFormatter {
       if (t !== t.trim()) { t = t.trim(); fixed++; }
       // Fix common OCR/import artifacts
       t = t.replace(/\s+([.,;:!?])/g, '$1');
+      // Fix double commas/periods
+      t = t.replace(/\.{2,}/g, '.').replace(/,{2,}/g, ',');
+      // Fix common typos
+      for (const [typo, replacement] of Object.entries(COMMON_TYPOS)) {
+        const regex = new RegExp(`\\b${typo}\\b`, 'gi');
+        if (regex.test(t)) {
+          t = t.replace(regex, (match) => {
+            if (match === match.toUpperCase()) return replacement.toUpperCase();
+            if (match[0] === match[0].toUpperCase()) return replacement.charAt(0).toUpperCase() + replacement.slice(1);
+            return replacement;
+          });
+        }
+      }
       if (t !== text) fixed++;
       return t;
     };
@@ -294,6 +322,11 @@ export class SmartFormatter {
             // Remove leading bullet characters
             if (/^[-•*▪▸►⦁◦‣·]\s*/.test(a.text)) {
               a.text = a.text.replace(/^[-•*▪▸►⦁◦‣·]\s*/, '');
+              fixed++;
+            }
+            // Capitalize first letter of bullet text if starting with lowercase letter
+            if (a.text && a.text.length > 0 && /^[a-z]/.test(a.text)) {
+              a.text = a.text.charAt(0).toUpperCase() + a.text.slice(1);
               fixed++;
             }
           }

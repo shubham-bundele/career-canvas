@@ -161,9 +161,10 @@ export class Modal {
           'aria-label': 'Close dialog'
         });
         const closeHandler = () => {
+          const resolve = this.resolvePromise;
           this.close();
-          if (this.resolvePromise) {
-            this.resolvePromise(null);
+          if (resolve) {
+            resolve(null);
           }
         };
         closeBtn.addEventListener('click', closeHandler);
@@ -218,21 +219,27 @@ export class Modal {
         try {
           const result = await action.handler();
           if (result !== false) {
+            // Capture before close(): close() releases promise refs.
+            const resolve = this.resolvePromise;
+            const reject = this.rejectPromise;
             this.close();
-            if (this.resolvePromise) {
-              this.resolvePromise(result);
+            if (resolve) {
+              resolve(result);
             }
           }
         } catch (error) {
           console.error('Modal action handler error:', error);
-          if (this.rejectPromise) {
-            this.rejectPromise(error);
+          const reject = this.rejectPromise;
+          this.close();
+          if (reject) {
+            reject(error);
           }
         }
       } else {
+        const resolve = this.resolvePromise;
         this.close();
-        if (this.resolvePromise) {
-          this.resolvePromise(action.label);
+        if (resolve) {
+          resolve(action.label);
         }
       }
     };
@@ -259,7 +266,16 @@ export class Modal {
         {
           label: options.cancelLabel || 'Cancel',
           type: BUTTON_TYPES.SECONDARY,
-          handler: () => false
+          // Cancel must dismiss AND settle the promise (returning false alone
+          // means "keep open" per createActionButton validation semantics).
+          handler: () => {
+            const resolve = this.resolvePromise;
+            this.close();
+            if (resolve) {
+              resolve(false);
+            }
+            return false; // already handled — skip the default close/resolve
+          }
         },
         {
           label: options.confirmLabel || 'Confirm',
@@ -342,28 +358,46 @@ export class Modal {
   }
 
   /**
-   * Closes the modal
+   * Closes the modal.
+   *
+   * State (isOpen/overlay/listeners) is released synchronously so a new
+   * modal can be opened immediately afterwards (e.g. confirm → prompt
+   * sequences); only the DOM fade-out/removal stays on a timer. Snapshot
+   * the outgoing overlay/listeners first — show() may already have
+   * reassigned them when close() runs as part of a transition.
    */
   close() {
     if (!this.isOpen) {
       return;
     }
+    this.isOpen = false;
+
+    const overlay = this.overlay;
+    const listeners = this.listeners;
+    const options = this.options;
+    this.listeners = [];
+    this.overlay = null;
+    this.modalElement = null;
+    this.focusableElements = [];
+    this.resolvePromise = null;
+    this.rejectPromise = null;
+
+    if (!overlay) return;
 
     // Animate out
-    this.overlay.classList.remove('modal-show');
-    this.overlay.classList.add('modal-hide');
+    overlay.classList.remove('modal-show');
+    overlay.classList.add('modal-hide');
 
     // Remove after animation
     setTimeout(() => {
       // Clean up listeners
-      this.listeners.forEach(({ element, event, handler }) => {
-        element.removeEventListener(event, handler);
+      listeners.forEach(({ element, event, handler }) => {
+        try { element.removeEventListener(event, handler); } catch { /* ignore */ }
       });
-      this.listeners = [];
 
       // Remove from DOM
-      if (this.overlay && this.overlay.parentNode) {
-        this.overlay.parentNode.removeChild(this.overlay);
+      if (overlay.parentNode) {
+        overlay.parentNode.removeChild(overlay);
       }
 
       // Restore body scroll
@@ -371,21 +405,16 @@ export class Modal {
 
       // Restore focus
       if (this.previousFocus) {
-        this.previousFocus.focus();
+        try { this.previousFocus.focus(); } catch { /* ignore */ }
+        this.previousFocus = null;
       }
-
-      // Reset state
-      this.overlay = null;
-      this.modalElement = null;
-      this.isOpen = false;
-      this.focusableElements = [];
 
       // Emit event
       eventBus.emit(EVENTS.UI_MODAL_CLOSE);
 
       // Call onClose callback
-      if (this.options.onClose) {
-        this.options.onClose();
+      if (options.onClose) {
+        try { options.onClose(); } catch (e) { console.error('Modal onClose error:', e); }
       }
     }, 300);
   }

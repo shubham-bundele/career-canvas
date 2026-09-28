@@ -451,7 +451,9 @@ export class LinkQrStudio {
     const list = createElement('div', '', { class: 'lqr-list' });
     card.appendChild(list);
 
-    const refresh = async () => {
+    // Declared as a hoisted function (not a const arrow) so the `mk`
+    // listeners above can reference it before this point in source order.
+    async function refresh() {
       try {
         const { scoreLinkedIn } = await import('../utils/linkedin-score.js');
         const url = (inputs.url.value || '').trim();
@@ -477,7 +479,7 @@ export class LinkQrStudio {
           list.appendChild(row);
         }
       } catch { /* advisory only */ }
-    };
+    }
     refresh();
     return card;
   }

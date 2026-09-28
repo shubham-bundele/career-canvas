@@ -371,8 +371,16 @@ CareerCanvas works fully without accounts. All features run locally. Adding auth
    https://your-app.vercel.app/#/auth/callback
    ```
 
-### Step 4: Add Environment Variables to Vercel
+### Step 3b: Harden Password Auth (Recommended)
 
+1. Go to **Authentication → Policies** (Password protection) in your Supabase dashboard
+2. Turn ON **Leaked password protection** (rejects passwords found in HaveIBeenPwned breaches)
+3. Set a strong minimum password length (8+ characters)
+
+Without this, the project security advisor reports `auth_leaked_password_protection` as WARN.
+This is a dashboard-only setting — it cannot be configured via SQL or env vars.
+
+### Step 4: Add Environment Variables to Vercel
 Go to your Vercel project → **Settings → Environment Variables** and add:
 
 | Variable | Value | Environments |

@@ -1027,12 +1027,6 @@ export class JobMatcher {
         }
         const { AiFormatter } = await import('./ai-formatter.js');
         const apiKey = AiFormatter.getApiKey();
-        if (!apiKey && !AiFormatter.hasLocalOption()) {
-          if (window.CC?.toast) window.CC.toast.show('No API key configured. Go to Settings to add your AI API key or enable Local AI.', 'error');
-          aiBtn.disabled = false;
-          aiBtn.textContent = '🤖 AI Enhancement';
-          return;
-        }
         const ai = new AiFormatter(apiKey);
         const suggestions = await ai.enhanceForJD(resumeDoc, jobDescription);
         aiResultsContainer.innerHTML = '';

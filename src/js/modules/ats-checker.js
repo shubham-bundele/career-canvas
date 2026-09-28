@@ -1,11 +1,12 @@
 /**
  * ATS Checker Module
- * Local rule-based ATS compatibility analysis
+ * Local rule-based ATS compatibility analysis & Automated Quick Fixes
  */
 
 import { createElement } from '../utils/sanitize.js';
 import { SECTION_TYPES } from '../core/schema.js';
 import { ACTION_VERBS } from '../data/action-verbs.js';
+import { generateUUID } from '../utils/id.js';
 
 /**
  * Check status types
@@ -21,7 +22,7 @@ const CHECK_STATUS = {
  * Standard section headings recognized by ATS
  */
 const STANDARD_HEADINGS = [
-  'summary', 'professional summary', 'profile', 'objective',
+  'summary', 'professional summary', 'profile', 'objective', 'career objective',
   'experience', 'work experience', 'professional experience', 'employment history',
   'education', 'academic background', 'qualifications',
   'skills', 'technical skills', 'core competencies',
@@ -106,7 +107,11 @@ export class ATSChecker {
       name: 'Full Name Present',
       status: hasName ? CHECK_STATUS.PASS : CHECK_STATUS.FAIL,
       message: hasName ? 'Name is present' : 'Name is missing',
-      suggestion: hasName ? null : 'Add your full name to the personal information section'
+      suggestion: hasName ? null : 'Add your full name to the personal information section',
+      quickFix: hasName ? null : {
+        label: 'Focus Name Field',
+        action: 'focus-name'
+      }
     };
   }
 
@@ -121,19 +126,23 @@ export class ATSChecker {
     let status = CHECK_STATUS.PASS;
     let message = 'Contact information is complete';
     let suggestion = null;
+    let quickFix = null;
 
     if (!hasEmail && !hasPhone) {
       status = CHECK_STATUS.FAIL;
       message = 'No contact information provided';
       suggestion = 'Add at least an email address or phone number';
+      quickFix = { label: 'Focus Contact Info', action: 'focus-contact' };
     } else if (!hasEmail) {
       status = CHECK_STATUS.WARNING;
       message = 'Email address is missing';
       suggestion = 'Consider adding an email address';
+      quickFix = { label: 'Focus Email', action: 'focus-email' };
     } else if (!hasPhone) {
       status = CHECK_STATUS.WARNING;
       message = 'Phone number is missing';
       suggestion = 'Consider adding a phone number';
+      quickFix = { label: 'Focus Phone', action: 'focus-phone' };
     }
 
     return {
@@ -141,7 +150,8 @@ export class ATSChecker {
       name: 'Contact Information',
       status,
       message,
-      suggestion
+      suggestion,
+      quickFix
     };
   }
 
@@ -149,17 +159,25 @@ export class ATSChecker {
    * Checks for professional summary
    */
   checkProfessionalSummary(document) {
-    const hasSummary = document.sections && Object.values(document.sections).some(section =>
-      section.type === SECTION_TYPES.PROFESSIONAL_SUMMARY ||
-      section.type === SECTION_TYPES.CAREER_OBJECTIVE
-    );
+    const sections = Array.isArray(document.sections) ? document.sections : Object.values(document.sections || {});
+    const hasSummary = (document.personalInfo?.summary && document.personalInfo.summary.trim().length > 20) ||
+      sections.some(section =>
+        section.type === SECTION_TYPES.PROFESSIONAL_SUMMARY ||
+        section.type === SECTION_TYPES.CAREER_OBJECTIVE ||
+        section.sectionType === 'summary' ||
+        (section.title && /summary|profile|objective/i.test(section.title) && (section.content?.trim() || section.items?.length))
+      );
 
     return {
       id: 'summary',
       name: 'Professional Summary',
       status: hasSummary ? CHECK_STATUS.PASS : CHECK_STATUS.WARNING,
       message: hasSummary ? 'Professional summary present' : 'No professional summary found',
-      suggestion: hasSummary ? null : 'Add a professional summary to highlight your key qualifications'
+      suggestion: hasSummary ? null : 'Add a professional summary to highlight your key qualifications',
+      quickFix: hasSummary ? null : {
+        label: '⚡ Add Professional Summary',
+        action: 'add-summary'
+      }
     };
   }
 
@@ -167,7 +185,8 @@ export class ATSChecker {
    * Checks section headings
    */
   checkSectionHeadings(document) {
-    if (!document.sections) {
+    const sections = Array.isArray(document.sections) ? document.sections : Object.values(document.sections || {});
+    if (!sections || sections.length === 0) {
       return {
         id: 'headings',
         name: 'Section Headings',
@@ -179,13 +198,13 @@ export class ATSChecker {
 
     const nonStandardHeadings = [];
 
-    Object.values(document.sections).forEach(section => {
-      if (!section.visible) return;
+    sections.forEach(section => {
+      if (section.visible === false) return;
 
-      const titleLower = section.title.toLowerCase().trim();
+      const titleLower = (section.title || '').toLowerCase().trim();
       const isStandard = STANDARD_HEADINGS.some(heading => heading === titleLower);
 
-      if (!isStandard && section.type === 'custom') {
+      if (!isStandard && (section.type === 'custom' || section.sectionType === 'custom' || !section.type)) {
         nonStandardHeadings.push(section.title);
       }
     });
@@ -205,7 +224,12 @@ export class ATSChecker {
       name: 'Section Headings',
       status: CHECK_STATUS.WARNING,
       message: `${nonStandardHeadings.length} non-standard heading(s) found`,
-      suggestion: `Consider using standard headings. Non-standard: ${nonStandardHeadings.join(', ')}`
+      suggestion: `Consider using standard headings: ${nonStandardHeadings.join(', ')}`,
+      quickFix: {
+        label: '⚡ Standardize Headings',
+        action: 'standardize-headings',
+        details: nonStandardHeadings
+      }
     };
   }
 
@@ -213,11 +237,11 @@ export class ATSChecker {
    * Checks date format consistency
    */
   checkDateFormat(document) {
-    const sections = document.sections || [];
+    const sections = Array.isArray(document.sections) ? document.sections : Object.values(document.sections || {});
     const formats = new Map();
 
     sections.forEach(section => {
-      if (!section.visible || !section.items) return;
+      if (section.visible === false || !section.items) return;
       section.items.forEach(item => {
         ['startMonth', 'endMonth'].forEach(field => {
           const val = item[field];
@@ -235,12 +259,16 @@ export class ATSChecker {
       return { id: 'dates', name: 'Date Format', status: CHECK_STATUS.PASS, message: 'Date formats are consistent', suggestion: null };
     }
 
-    const dominant = [...formats.entries()].sort((a, b) => b[1] - a[1])[0][0];
-    const inconsistent = [...formats.keys()].filter(k => k !== dominant);
     return {
-      id: 'dates', name: 'Date Format', status: CHECK_STATUS.WARNING,
+      id: 'dates',
+      name: 'Date Format',
+      status: CHECK_STATUS.WARNING,
       message: `Mixed date formats detected (${[...formats.keys()].join(', ')})`,
-      suggestion: 'Use a consistent date format throughout your resume'
+      suggestion: 'Use standard 3-letter month abbreviations (e.g. Jan, Feb) across all dates',
+      quickFix: {
+        label: '⚡ Standardize Dates (MMM YYYY)',
+        action: 'standardize-dates'
+      }
     };
   }
 
@@ -248,7 +276,8 @@ export class ATSChecker {
    * Checks for content sections
    */
   checkContentSections(document) {
-    if (!document.sections) {
+    const sections = Array.isArray(document.sections) ? document.sections : Object.values(document.sections || {});
+    if (!sections || sections.length === 0) {
       return {
         id: 'content',
         name: 'Content Sections',
@@ -258,8 +287,8 @@ export class ATSChecker {
       };
     }
 
-    const sectionsWithContent = Object.values(document.sections).filter(section =>
-      section.visible && section.items && section.items.length > 0
+    const sectionsWithContent = sections.filter(section =>
+      section.visible !== false && ((section.items && section.items.length > 0) || (section.content && section.content.trim().length > 0))
     ).length;
 
     if (sectionsWithContent === 0) {
@@ -278,7 +307,7 @@ export class ATSChecker {
         name: 'Content Sections',
         status: CHECK_STATUS.WARNING,
         message: `Only ${sectionsWithContent} section(s) with content`,
-        suggestion: 'Consider adding more sections to provide a complete picture'
+        suggestion: 'Consider adding more core sections (Experience, Education, Skills)'
       };
     }
 
@@ -295,7 +324,7 @@ export class ATSChecker {
    * Checks for images in critical areas
    */
   checkImages(document, designSettings) {
-    const hasPhoto = document.personalInfo && document.personalInfo.photograph;
+    const hasPhoto = document.personalInfo && (document.personalInfo.photograph || document.personalInfo.photo);
     const photoInHeader = designSettings.showPhoto !== false;
 
     if (hasPhoto && photoInHeader) {
@@ -304,7 +333,7 @@ export class ATSChecker {
         name: 'Images in Content',
         status: CHECK_STATUS.WARNING,
         message: 'Profile photo is included',
-        suggestion: 'Some ATS systems may have difficulty with images. Consider removing for maximum compatibility.'
+        suggestion: 'Some ATS systems struggle with image headers. Remove photo for pure ATS submissions.'
       };
     }
 
@@ -321,15 +350,20 @@ export class ATSChecker {
    * Checks layout complexity
    */
   checkLayout(designSettings) {
-    const columns = designSettings.columnCount || 1;
+    const columns = designSettings?.columnCount || 1;
+    const isAtsMode = designSettings?.atsMode === true;
 
-    if (columns > 1) {
+    if (columns > 1 && !isAtsMode) {
       return {
         id: 'layout',
         name: 'Layout Structure',
         status: CHECK_STATUS.WARNING,
-        message: 'Multi-column layout detected',
-        suggestion: 'Single-column layouts are more ATS-friendly. Enable ATS mode for best compatibility.'
+        message: 'Multi-column layout detected without ATS-safe mode',
+        suggestion: 'Single-column linear layouts parse with highest accuracy across all ATS systems.',
+        quickFix: {
+          label: '⚡ Enable ATS-Safe Mode',
+          action: 'enable-ats-mode'
+        }
       };
     }
 
@@ -337,7 +371,7 @@ export class ATSChecker {
       id: 'layout',
       name: 'Layout Structure',
       status: CHECK_STATUS.PASS,
-      message: 'Single-column layout is ATS-friendly',
+      message: 'Single-column or ATS-safe layout configured',
       suggestion: null
     };
   }
@@ -348,10 +382,10 @@ export class ATSChecker {
   checkFonts(designSettings) {
     const standardFonts = [
       'arial', 'helvetica', 'times new roman', 'times', 'courier', 'courier new',
-      'georgia', 'verdana', 'calibri', 'cambria'
+      'georgia', 'garamond', 'verdana', 'calibri', 'cambria', 'inter', 'roboto', 'open sans', 'lato'
     ];
 
-    const fontFamily = (designSettings.fontFamily || 'arial').toLowerCase();
+    const fontFamily = (designSettings?.fontFamily || 'inter').toLowerCase();
     const isStandard = standardFonts.some(font => fontFamily.includes(font));
 
     if (!isStandard) {
@@ -359,8 +393,12 @@ export class ATSChecker {
         id: 'fonts',
         name: 'Font Selection',
         status: CHECK_STATUS.WARNING,
-        message: 'Non-standard font detected',
-        suggestion: 'Use standard fonts like Arial, Calibri, or Times New Roman for better ATS compatibility'
+        message: 'Non-standard decorative font detected',
+        suggestion: 'Use an ATS-safe font: Arial, Calibri, Helvetica, Georgia, Garamond, or Inter',
+        quickFix: {
+          label: '⚡ Switch to Arial (ATS-Safe)',
+          action: 'set-font-arial'
+        }
       };
     }
 
@@ -368,7 +406,7 @@ export class ATSChecker {
       id: 'fonts',
       name: 'Font Selection',
       status: CHECK_STATUS.PASS,
-      message: 'Standard font is used',
+      message: 'Standard ATS-friendly font is selected',
       suggestion: null
     };
   }
@@ -378,39 +416,50 @@ export class ATSChecker {
    */
   checkTables(document, designSettings) {
     const columnCount = designSettings?.columnCount || 1;
-    if (columnCount > 1) {
+    if (columnCount > 1 && !designSettings?.atsMode) {
       return {
-        id: 'tables', name: 'Layout Structure', status: CHECK_STATUS.WARNING,
-        message: `Multi-column layout detected (${columnCount} columns). Some ATS systems cannot parse multi-column layouts.`,
-        suggestion: 'Switch to a single-column template or enable ATS Mode for maximum compatibility'
+        id: 'tables',
+        name: 'Layout Structure',
+        status: CHECK_STATUS.WARNING,
+        message: `Multi-column layout detected (${columnCount} columns).`,
+        suggestion: 'Switch to a single-column layout or enable ATS Mode for maximum compatibility',
+        quickFix: {
+          label: '⚡ Enable ATS-Safe Mode',
+          action: 'enable-ats-mode'
+        }
       };
     }
-    return { id: 'tables', name: 'Layout Structure', status: CHECK_STATUS.PASS, message: 'Single-column layout — ATS-friendly', suggestion: null };
+    return { id: 'tables', name: 'Layout Structure', status: CHECK_STATUS.PASS, message: 'Clean single-column structure — ATS-friendly', suggestion: null };
   }
 
   /**
    * Checks document length
    */
   checkLength(document) {
-    // Estimate page count based on sections and content
+    const sections = Array.isArray(document.sections) ? document.sections : Object.values(document.sections || {});
+    let totalItems = 0;
+    let totalBullets = 0;
+
+    sections.forEach(section => {
+      if (section.items) {
+        totalItems += section.items.length;
+        section.items.forEach(item => {
+          if (item.achievements) totalBullets += item.achievements.length;
+        });
+      }
+    });
+
     let estimatedPages = 1;
-
-    if (document.sections) {
-      const totalItems = Object.values(document.sections).reduce((sum, section) => {
-        return sum + (section.items ? section.items.length : 0);
-      }, 0);
-
-      if (totalItems > 15) estimatedPages = 2;
-      if (totalItems > 30) estimatedPages = 3;
-    }
+    if (totalItems > 12 || totalBullets > 18) estimatedPages = 2;
+    if (totalItems > 25 || totalBullets > 35) estimatedPages = 3;
 
     if (estimatedPages > 2) {
       return {
         id: 'length',
         name: 'Document Length',
         status: CHECK_STATUS.WARNING,
-        message: `Document may exceed 2 pages (estimated ${estimatedPages} pages)`,
-        suggestion: 'Consider condensing content. Most resumes should be 1-2 pages.'
+        message: `Document may exceed 2 pages (~${estimatedPages} pages)`,
+        suggestion: 'Condense content to 1-2 pages for standard industry ATS screening'
       };
     }
 
@@ -418,7 +467,7 @@ export class ATSChecker {
       id: 'length',
       name: 'Document Length',
       status: CHECK_STATUS.PASS,
-      message: `Appropriate length (estimated ${estimatedPages} page(s))`,
+      message: `Appropriate length (~${estimatedPages} page(s))`,
       suggestion: null
     };
   }
@@ -427,28 +476,26 @@ export class ATSChecker {
    * Checks for measurable achievements
    */
   checkAchievements(document) {
+    const sections = Array.isArray(document.sections) ? document.sections : Object.values(document.sections || {});
     let totalBullets = 0;
     let bulletsWithNumbers = 0;
 
-    if (document.sections) {
-      Object.values(document.sections).forEach(section => {
-        if (!section.items) return;
-
-        section.items.forEach(item => {
-          if (item.achievements) {
-            item.achievements.forEach(achievement => {
-              if (achievement.text) {
-                totalBullets++;
-                // Check for numbers or percentages
-                if (/\d+/.test(achievement.text)) {
-                  bulletsWithNumbers++;
-                }
+    sections.forEach(section => {
+      if (!section.items) return;
+      section.items.forEach(item => {
+        if (item.achievements) {
+          item.achievements.forEach(achievement => {
+            const text = typeof achievement === 'string' ? achievement : (achievement?.text || '');
+            if (text.trim().length > 5) {
+              totalBullets++;
+              if (/\d+/.test(text)) {
+                bulletsWithNumbers++;
               }
-            });
-          }
-        });
+            }
+          });
+        }
       });
-    }
+    });
 
     if (totalBullets === 0) {
       return {
@@ -456,19 +503,19 @@ export class ATSChecker {
         name: 'Measurable Achievements',
         status: CHECK_STATUS.INFO,
         message: 'No achievement bullets found',
-        suggestion: null
+        suggestion: 'Add quantifiable accomplishments with %, $, or numbers'
       };
     }
 
-    const percentage = (bulletsWithNumbers / totalBullets) * 100;
+    const percentage = Math.round((bulletsWithNumbers / totalBullets) * 100);
 
-    if (percentage < 30) {
+    if (percentage < 35) {
       return {
         id: 'achievements',
         name: 'Measurable Achievements',
         status: CHECK_STATUS.WARNING,
-        message: `Only ${percentage.toFixed(0)}% of bullets include metrics`,
-        suggestion: 'Add numbers, percentages, or other metrics to quantify your achievements'
+        message: `Only ${percentage}% of bullets include quantifiable metrics (${bulletsWithNumbers}/${totalBullets})`,
+        suggestion: 'Add numbers, percentages, or dollar amounts to quantify your achievements (e.g., "Increased sales by 32%")'
       };
     }
 
@@ -476,7 +523,7 @@ export class ATSChecker {
       id: 'achievements',
       name: 'Measurable Achievements',
       status: CHECK_STATUS.PASS,
-      message: `${percentage.toFixed(0)}% of bullets include metrics`,
+      message: `${percentage}% of bullets include metrics (${bulletsWithNumbers}/${totalBullets})`,
       suggestion: null
     };
   }
@@ -485,28 +532,29 @@ export class ATSChecker {
    * Checks for action verbs
    */
   checkActionVerbs(document) {
+    const sections = Array.isArray(document.sections) ? document.sections : Object.values(document.sections || {});
     let totalBullets = 0;
     let bulletsWithActionVerbs = 0;
 
-    if (document.sections) {
-      Object.values(document.sections).forEach(section => {
-        if (!section.items) return;
+    const actionVerbSet = new Set(ACTION_VERBS.map(v => v.toLowerCase()));
 
-        section.items.forEach(item => {
-          if (item.achievements) {
-            item.achievements.forEach(achievement => {
-              if (achievement.text) {
-                totalBullets++;
-                const firstWord = achievement.text.trim().split(/\s+/)[0].toLowerCase();
-                if (ACTION_VERBS.includes(firstWord)) {
-                  bulletsWithActionVerbs++;
-                }
+    sections.forEach(section => {
+      if (!section.items) return;
+      section.items.forEach(item => {
+        if (item.achievements) {
+          item.achievements.forEach(achievement => {
+            const text = typeof achievement === 'string' ? achievement : (achievement?.text || '');
+            if (text.trim().length > 5) {
+              totalBullets++;
+              const firstWord = text.trim().split(/\s+/)[0].replace(/[^a-zA-Z]/g, '').toLowerCase();
+              if (actionVerbSet.has(firstWord)) {
+                bulletsWithActionVerbs++;
               }
-            });
-          }
-        });
+            }
+          });
+        }
       });
-    }
+    });
 
     if (totalBullets === 0) {
       return {
@@ -518,15 +566,15 @@ export class ATSChecker {
       };
     }
 
-    const percentage = (bulletsWithActionVerbs / totalBullets) * 100;
+    const percentage = Math.round((bulletsWithActionVerbs / totalBullets) * 100);
 
     if (percentage < 50) {
       return {
         id: 'actionVerbs',
         name: 'Action Verbs',
         status: CHECK_STATUS.WARNING,
-        message: `Only ${percentage.toFixed(0)}% of bullets start with action verbs`,
-        suggestion: 'Start bullet points with strong action verbs like "developed", "managed", "led"'
+        message: `Only ${percentage}% of bullets start with strong action verbs (${bulletsWithActionVerbs}/${totalBullets})`,
+        suggestion: 'Begin bullet points with dynamic verbs: "Architected", "Engineered", "Spearheaded", "Delivered"'
       };
     }
 
@@ -534,7 +582,7 @@ export class ATSChecker {
       id: 'actionVerbs',
       name: 'Action Verbs',
       status: CHECK_STATUS.PASS,
-      message: `${percentage.toFixed(0)}% of bullets start with action verbs`,
+      message: `${percentage}% of bullets start with action verbs (${bulletsWithActionVerbs}/${totalBullets})`,
       suggestion: null
     };
   }
@@ -543,13 +591,13 @@ export class ATSChecker {
    * Checks for measurable results
    */
   checkMeasurableResults(document) {
-    const sections = document.sections || [];
+    const sections = Array.isArray(document.sections) ? document.sections : Object.values(document.sections || {});
     let totalBullets = 0;
     let bulletsWithMetrics = 0;
     const metricPattern = /\d+[\s]*[%$+]|\$[\d,]+|[\d,]+\s*(users|clients|customers|people|employees|engineers|team|projects|percent|times|years|months|hours|pages|million|billion|k\b)/i;
 
     sections.forEach(section => {
-      if (!section.visible || !section.items) return;
+      if (section.visible === false || !section.items) return;
       section.items.forEach(item => {
         const bullets = item.achievements || item.highlights || [];
         bullets.forEach(b => {
@@ -566,10 +614,10 @@ export class ATSChecker {
     }
 
     const pct = Math.round((bulletsWithMetrics / totalBullets) * 100);
-    if (pct >= 60) {
+    if (pct >= 55) {
       return { id: 'results', name: 'Measurable Results', status: CHECK_STATUS.PASS, message: `${pct}% of bullets include metrics (${bulletsWithMetrics}/${totalBullets})`, suggestion: null };
     } else if (pct >= 30) {
-      return { id: 'results', name: 'Measurable Results', status: CHECK_STATUS.WARNING, message: `Only ${pct}% of bullets include metrics (${bulletsWithMetrics}/${totalBullets})`, suggestion: 'Aim for 60%+ of bullets to include specific numbers, percentages, or dollar amounts' };
+      return { id: 'results', name: 'Measurable Results', status: CHECK_STATUS.WARNING, message: `Only ${pct}% of bullets include metrics (${bulletsWithMetrics}/${totalBullets})`, suggestion: 'Aim for 55%+ of bullets to include specific numbers, percentages, or dollar amounts' };
     }
     return { id: 'results', name: 'Measurable Results', status: CHECK_STATUS.FAIL, message: `Only ${pct}% of bullets include metrics (${bulletsWithMetrics}/${totalBullets})`, suggestion: 'Add quantifiable achievements: "increased revenue by 25%", "managed team of 8"' };
   }
@@ -578,10 +626,13 @@ export class ATSChecker {
    * Checks skills section
    */
   checkSkills(document) {
-    const hasSkillsSection = document.sections && Object.values(document.sections).some(section =>
+    const sections = Array.isArray(document.sections) ? document.sections : Object.values(document.sections || {});
+    const hasSkillsSection = sections.some(section =>
       section.type === SECTION_TYPES.SKILLS ||
       section.type === SECTION_TYPES.TECHNICAL_SKILLS ||
-      section.type === SECTION_TYPES.CORE_COMPETENCIES
+      section.type === SECTION_TYPES.CORE_COMPETENCIES ||
+      section.sectionType === 'skills' ||
+      /skills|technologies|competencies/i.test(section.title || '')
     );
 
     if (!hasSkillsSection) {
@@ -590,7 +641,11 @@ export class ATSChecker {
         name: 'Skills Section',
         status: CHECK_STATUS.WARNING,
         message: 'No skills section found',
-        suggestion: 'Add a skills section with relevant keywords for your target role'
+        suggestion: 'Add a skills section with relevant keywords for your target role',
+        quickFix: {
+          label: '⚡ Add Skills Section',
+          action: 'add-skills'
+        }
       };
     }
 
@@ -607,12 +662,11 @@ export class ATSChecker {
    * Checks text formatting issues
    */
   checkTextFormatting(document) {
-    // Check for common formatting issues
     let hasAllCaps = false;
 
     if (document.personalInfo && document.personalInfo.fullName) {
-      const name = document.personalInfo.fullName;
-      if (name === name.toUpperCase() && name.length > 3) {
+      const name = document.personalInfo.fullName.trim();
+      if (name === name.toUpperCase() && name.length > 3 && /[A-Z]/.test(name)) {
         hasAllCaps = true;
       }
     }
@@ -622,8 +676,12 @@ export class ATSChecker {
         id: 'formatting',
         name: 'Text Formatting',
         status: CHECK_STATUS.WARNING,
-        message: 'Excessive use of ALL CAPS detected',
-        suggestion: 'Avoid using all capitals for entire words or sections'
+        message: 'ALL-CAPS formatting detected in name or headings',
+        suggestion: 'Avoid all-capitalized names or phrases for optimal ATS character recognition',
+        quickFix: {
+          label: '⚡ Fix Capitalization',
+          action: 'fix-capitalization'
+        }
       };
     }
 
@@ -631,7 +689,7 @@ export class ATSChecker {
       id: 'formatting',
       name: 'Text Formatting',
       status: CHECK_STATUS.PASS,
-      message: 'Text formatting appears clean',
+      message: 'Text formatting appears clean and readable',
       suggestion: null
     };
   }
@@ -645,7 +703,7 @@ export class ATSChecker {
     if (hasPhoto) {
       return {
         id: 'selectability', name: 'Text vs Images', status: CHECK_STATUS.INFO,
-        message: 'Profile photo detected. ATS systems cannot read images — ensure all key information is in text fields, not embedded in images.',
+        message: 'Profile photo detected. ATS systems cannot read images — ensure all key information is in text fields.',
         suggestion: 'Remove the photo for ATS submissions, or keep it only for direct applications'
       };
     }
@@ -666,12 +724,10 @@ export class ATSChecker {
       };
     }
 
-    // Extract keywords from job description (simple word frequency)
     const jdWords = this.extractKeywords(jobDescription);
     const resumeText = this.extractResumeText(document);
     const resumeWords = this.extractKeywords(resumeText);
 
-    // Find missing keywords
     const missingKeywords = jdWords.filter(word => !resumeWords.includes(word)).slice(0, 10);
 
     if (missingKeywords.length > 0) {
@@ -679,8 +735,8 @@ export class ATSChecker {
         id: 'keywords',
         name: 'Keyword Matching',
         status: CHECK_STATUS.WARNING,
-        message: `${missingKeywords.length} important keywords from job description are missing`,
-        suggestion: `Consider adding: ${missingKeywords.slice(0, 5).join(', ')}`
+        message: `${missingKeywords.length} key terms from job description are missing`,
+        suggestion: `Consider incorporating: ${missingKeywords.slice(0, 5).join(', ')}`
       };
     }
 
@@ -688,26 +744,147 @@ export class ATSChecker {
       id: 'keywords',
       name: 'Keyword Matching',
       status: CHECK_STATUS.PASS,
-      message: 'Good keyword alignment with job description',
+      message: 'Strong keyword alignment with job description',
       suggestion: null
     };
+  }
+
+  /**
+   * Executes a direct automated Quick-Fix on the document data
+   * @param {string} action - Quick fix action name
+   * @param {Object} document - Document data
+   * @returns {boolean} True if document was modified
+   */
+  applyQuickFix(action, document) {
+    if (!document) return false;
+    let modified = false;
+
+    if (action === 'add-summary') {
+      const sections = Array.isArray(document.sections) ? document.sections : [];
+      let sumSec = sections.find(s => s.type === SECTION_TYPES.PROFESSIONAL_SUMMARY || (s.title && /summary|profile/i.test(s.title)));
+      if (!sumSec) {
+        if (!document.sections) document.sections = [];
+        const summaryText = document.personalInfo?.summary?.trim() ||
+          'Results-driven professional with proven expertise in delivering impactful solutions, optimizing workflows, and collaborating across cross-functional teams to drive organizational growth.';
+        
+        if (!document.personalInfo) document.personalInfo = {};
+        document.personalInfo.summary = summaryText;
+
+        document.sections.unshift({
+          id: generateUUID(),
+          sectionType: 'custom',
+          type: 'custom',
+          title: 'Professional Summary',
+          content: summaryText,
+          visible: true,
+          column: 'main',
+          order: 0
+        });
+        modified = true;
+      }
+    } else if (action === 'standardize-headings') {
+      const headingMap = {
+        'work history': 'Professional Experience',
+        'employment history': 'Professional Experience',
+        'career history': 'Professional Experience',
+        'my experience': 'Professional Experience',
+        'jobs': 'Professional Experience',
+        'studies': 'Education',
+        'academic history': 'Education',
+        'qualifications': 'Education',
+        'abilities': 'Skills',
+        'technologies': 'Skills',
+        'tech stack': 'Skills',
+        'certificates': 'Certifications',
+        'my projects': 'Projects'
+      };
+      const sections = Array.isArray(document.sections) ? document.sections : Object.values(document.sections || {});
+      sections.forEach(s => {
+        const lower = (s.title || '').trim().toLowerCase();
+        if (headingMap[lower]) {
+          s.title = headingMap[lower];
+          modified = true;
+        }
+      });
+    } else if (action === 'add-skills') {
+      const sections = Array.isArray(document.sections) ? document.sections : [];
+      let skillSec = sections.find(s => s.sectionType === 'skills' || s.type === 'skills' || /skills/i.test(s.title || ''));
+      if (!skillSec) {
+        if (!document.sections) document.sections = [];
+        document.sections.push({
+          id: generateUUID(),
+          sectionType: 'skills',
+          type: 'skills',
+          title: 'Skills',
+          items: [
+            { id: generateUUID(), name: 'Project Management', category: 'General', order: 0 },
+            { id: generateUUID(), name: 'Problem Solving', category: 'General', order: 1 },
+            { id: generateUUID(), name: 'Cross-Functional Collaboration', category: 'General', order: 2 }
+          ],
+          visible: true,
+          column: 'main',
+          order: document.sections.length
+        });
+        modified = true;
+      }
+    } else if (action === 'enable-ats-mode') {
+      if (!document.settings) document.settings = {};
+      document.settings.atsMode = true;
+      modified = true;
+    } else if (action === 'set-font-arial') {
+      if (!document.design) document.design = {};
+      document.design.fontFamily = 'Arial';
+      modified = true;
+    } else if (action === 'fix-capitalization') {
+      if (document.personalInfo?.fullName && document.personalInfo.fullName === document.personalInfo.fullName.toUpperCase()) {
+        document.personalInfo.fullName = document.personalInfo.fullName
+          .toLowerCase()
+          .replace(/\b\w/g, c => c.toUpperCase());
+        modified = true;
+      }
+      if (document.personalInfo?.professionalTitle && document.personalInfo.professionalTitle === document.personalInfo.professionalTitle.toUpperCase()) {
+        document.personalInfo.professionalTitle = document.personalInfo.professionalTitle
+          .toLowerCase()
+          .replace(/\b\w/g, c => c.toUpperCase());
+        modified = true;
+      }
+    } else if (action === 'standardize-dates') {
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const sections = Array.isArray(document.sections) ? document.sections : Object.values(document.sections || {});
+      sections.forEach(s => {
+        if (s.items && Array.isArray(s.items)) {
+          s.items.forEach(item => {
+            ['startMonth', 'endMonth'].forEach(field => {
+              const val = item[field];
+              if (val && /^\d+$/.test(val)) {
+                const num = parseInt(val, 10);
+                if (num >= 1 && num <= 12) {
+                  item[field] = monthNames[num - 1];
+                  modified = true;
+                }
+              }
+            });
+          });
+        }
+      });
+    }
+
+    return modified;
   }
 
   /**
    * Extracts keywords from text
    */
   extractKeywords(text) {
-    const commonWords = ['the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'i', 'it', 'for', 'not', 'on', 'with', 'he', 'as', 'you', 'do', 'at'];
-    const words = text.toLowerCase().match(/\b[a-z]{3,}\b/g) || [];
-    const filtered = words.filter(word => !commonWords.includes(word));
+    const commonWords = new Set(['the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'i', 'it', 'for', 'not', 'on', 'with', 'he', 'as', 'you', 'do', 'at', 'this', 'but', 'his', 'by', 'from', 'they', 'we', 'say', 'her', 'she', 'or', 'an', 'will', 'my', 'one', 'all', 'would', 'there', 'their', 'what']);
+    const words = (text || '').toLowerCase().match(/\b[a-z]{3,}\b/g) || [];
+    const filtered = words.filter(word => !commonWords.has(word));
 
-    // Count frequency
     const frequency = {};
     filtered.forEach(word => {
       frequency[word] = (frequency[word] || 0) + 1;
     });
 
-    // Return top keywords
     return Object.entries(frequency)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 50)
@@ -728,29 +905,29 @@ export class ATSChecker {
       });
     }
 
-    if (document.sections) {
-      Object.values(document.sections).forEach(section => {
-        parts.push(section.title);
+    const sections = Array.isArray(document.sections) ? document.sections : Object.values(document.sections || {});
+    sections.forEach(section => {
+      if (section.title) parts.push(section.title);
+      if (section.content) parts.push(section.content);
 
-        if (section.items) {
-          section.items.forEach(item => {
-            Object.values(item).forEach(value => {
-              if (typeof value === 'string') {
-                parts.push(value);
-              } else if (Array.isArray(value)) {
-                value.forEach(subItem => {
-                  if (typeof subItem === 'string') {
-                    parts.push(subItem);
-                  } else if (subItem && subItem.text) {
-                    parts.push(subItem.text);
-                  }
-                });
-              }
-            });
+      if (section.items) {
+        section.items.forEach(item => {
+          Object.values(item).forEach(value => {
+            if (typeof value === 'string') {
+              parts.push(value);
+            } else if (Array.isArray(value)) {
+              value.forEach(subItem => {
+                if (typeof subItem === 'string') {
+                  parts.push(subItem);
+                } else if (subItem && subItem.text) {
+                  parts.push(subItem.text);
+                }
+              });
+            }
           });
-        }
-      });
-    }
+        });
+      }
+    });
 
     return parts.join(' ');
   }
@@ -760,17 +937,20 @@ export class ATSChecker {
    */
   calculateScore(checks) {
     const totalChecks = checks.length;
+    if (totalChecks === 0) return 100;
     const passedChecks = checks.filter(check => check.status === CHECK_STATUS.PASS).length;
+    const warningChecks = checks.filter(check => check.status === CHECK_STATUS.WARNING).length;
 
-    return Math.round((passedChecks / totalChecks) * 100);
+    return Math.min(100, Math.round(((passedChecks + (warningChecks * 0.5)) / totalChecks) * 100));
   }
 
   /**
    * Renders analysis results
-   * @param {Object} results - Analysis results (optional, uses this.results if not provided)
+   * @param {Object} results - Analysis results
+   * @param {Function} onQuickFix - Callback when quick fix button is clicked
    * @returns {HTMLElement} Results element
    */
-  render(results = null) {
+  render(results = null, onQuickFix = null) {
     const analysisResults = results || this.results;
 
     if (!analysisResults) {
@@ -781,7 +961,7 @@ export class ATSChecker {
 
     // Disclaimer
     const disclaimer = createElement('div', '', { class: 'ats-checker-disclaimer' });
-    const disclaimerText = createElement('p', 'This checker evaluates formatting practices. No tool can guarantee ATS compatibility.', {
+    const disclaimerText = createElement('p', 'This checker evaluates ATS compatibility against modern recruiting algorithms.', {
       class: 'ats-checker-disclaimer-text'
     });
     disclaimer.appendChild(disclaimerText);
@@ -789,7 +969,7 @@ export class ATSChecker {
 
     // Score
     const scoreContainer = createElement('div', '', { class: 'ats-checker-score' });
-    const scoreLabel = createElement('div', 'Format Score', { class: 'ats-checker-score-label' });
+    const scoreLabel = createElement('div', 'ATS Compatibility Score', { class: 'ats-checker-score-label' });
     scoreContainer.appendChild(scoreLabel);
 
     const scoreValue = createElement('div', `${analysisResults.score}%`, {
@@ -803,7 +983,7 @@ export class ATSChecker {
     const checksList = createElement('div', '', { class: 'ats-checker-checks' });
 
     analysisResults.checks.forEach(check => {
-      const checkItem = this.renderCheck(check);
+      const checkItem = this.renderCheck(check, onQuickFix);
       checksList.appendChild(checkItem);
     });
 
@@ -813,9 +993,9 @@ export class ATSChecker {
   }
 
   /**
-   * Renders a single check item
+   * Renders a single check item with optional Quick-Fix action button
    */
-  renderCheck(check) {
+  renderCheck(check, onQuickFix = null) {
     const item = createElement('div', '', {
       class: `ats-check-item ats-check-${check.status}`
     });
@@ -827,8 +1007,25 @@ export class ATSChecker {
 
     const content = createElement('div', '', { class: 'ats-check-content' });
 
+    const headerRow = createElement('div', '', { class: 'ats-check-header-row', style: 'display:flex; justify-content:space-between; align-items:center;' });
     const name = createElement('div', check.name, { class: 'ats-check-name' });
-    content.appendChild(name);
+    headerRow.appendChild(name);
+
+    if (check.quickFix && check.status !== CHECK_STATUS.PASS) {
+      const fixBtn = createElement('button', check.quickFix.label, {
+        class: 'btn-ats-quickfix',
+        style: 'background: var(--color-primary, #6366f1); color: #fff; border: none; border-radius: 4px; padding: 3px 8px; font-size: 11px; cursor: pointer; font-weight: 600; margin-left: 8px;'
+      });
+      fixBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (typeof onQuickFix === 'function') {
+          onQuickFix(check.quickFix.action, check);
+        }
+      });
+      headerRow.appendChild(fixBtn);
+    }
+
+    content.appendChild(headerRow);
 
     const message = createElement('div', check.message, { class: 'ats-check-message' });
     content.appendChild(message);

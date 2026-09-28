@@ -253,7 +253,6 @@ export class ImportManager {
             console.error(`Failed to restore ${storeName} record:`, error);
           }
         }
-        if (restored > 0) console.log(`Restored ${restored} ${storeName} records`);
       }
 
       toast.success(`Imported ${imported} of ${docCount} documents`);
@@ -1333,13 +1332,10 @@ export class ImportManager {
   /** True for "no usable AI" failures (no key, no server, offline) — these get a local fallback, never a dead end. */
   _isAiUnavailable(err) {
     const msg = String(err?.message || err || '');
-    return /API key|not configured|require a free API key|Network error|Failed to fetch|fetch failed|Load failed|server error \(404\)|Failed to parse document natively/i.test(msg);
+    return /API key|not configured|require a free API key|Network error|Failed to fetch|fetch failed|Load failed|server error|501|500|502|503|404|405|Unsupported method|invalid structure/i.test(msg);
   }
 
   async _aiFormatImport(parsedData) {
-    const { AiFormatter } = await import('./ai-formatter.js');
-    const ai = new AiFormatter();
-
     // Build raw text from existing parsed data
     const rawParts = [];
     if (parsedData.name) rawParts.push(parsedData.name);
@@ -1348,41 +1344,87 @@ export class ImportManager {
     if (parsedData.location) rawParts.push(parsedData.location);
     (parsedData.sections || []).forEach(sec => {
       rawParts.push('\n' + (sec.title || 'Section'));
-      (sec.content || []).forEach(line => rawParts.push(line));
+      if (Array.isArray(sec.content)) {
+        sec.content.forEach(line => rawParts.push(line));
+      } else if (typeof sec.content === 'string') {
+        rawParts.push(sec.content);
+      }
     });
     // Also include _rawText if we stored it
     const resumeText = parsedData._rawText || rawParts.join('\n');
 
     try {
-      const result = await ai.parseResume(resumeText);
-      if (!result || !result.sections || !Array.isArray(result.sections)) {
-        throw new Error('AI returned invalid structure');
-      }
-      return result;
-    } catch (err) {
-      // AI unavailable (no key, no server, offline): structure the resume with
-      // the on-device smart parser so the button still does something useful.
-      if (this._isAiUnavailable(err)) {
-        try {
-          const { parseResumeLocal } = await import('./local-resume-parser.js');
-          const { normalizePipeline } = await import('../utils/import-pipeline.js');
-          const local = parseResumeLocal(resumeText, { filename: parsedData.sourceFile });
-          const { parsed: localOut, report } = normalizePipeline(local);
-          if (localOut && Array.isArray(localOut.sections) && localOut.sections.length > 0) {
-            return {
-              name: localOut.name, title: localOut.title, email: localOut.email,
-              phone: localOut.phone, location: localOut.location, linkedin: localOut.linkedin,
-              github: localOut.github, website: localOut.website,
-              sections: localOut.sections, _parser: 'local-smart-v1', _localFormat: true,
-              _pipelineReport: report,
-            };
+      const { centralAI } = await import('../core/central-ai.js');
+      const aligned = await centralAI.parseAndAlignResume(resumeText, { filename: parsedData.sourceFile });
+
+      if (aligned && aligned.document) {
+        const doc = aligned.document;
+        const sections = (doc.sections || []).map(s => {
+          let contentLines = [];
+          if (Array.isArray(s.content)) {
+            contentLines = s.content;
+          } else if (typeof s.content === 'string' && s.content) {
+            contentLines = s.content.split('\n').filter(Boolean);
+          } else if (Array.isArray(s.items)) {
+            contentLines = s.items.map(item => {
+              if (typeof item === 'string') return item;
+              const header = [item.title || item.name || item.degree || item.position, item.company || item.institution || item.issuer].filter(Boolean).join(' at ');
+              const achs = Array.isArray(item.achievements) ? item.achievements.map(a => typeof a === 'object' ? a.text : a) : [];
+              return [header, item.description, ...achs].filter(Boolean).join(' | ');
+            });
           }
-        } catch (localErr) {
-          console.warn('Local format fallback failed:', localErr);
-        }
+          return {
+            ...s,
+            content: contentLines,
+            items: s.items || []
+          };
+        });
+
+        return {
+          name: doc.personalInfo?.fullName || parsedData.name || '',
+          title: doc.personalInfo?.professionalTitle || parsedData.professionalTitle || '',
+          email: doc.personalInfo?.email || parsedData.email || '',
+          phone: doc.personalInfo?.phone || parsedData.phone || '',
+          location: [doc.personalInfo?.city, doc.personalInfo?.state, doc.personalInfo?.country].filter(Boolean).join(', ') || parsedData.location || '',
+          linkedin: doc.personalInfo?.linkedinUrl || parsedData.linkedin || '',
+          github: doc.personalInfo?.githubUrl || parsedData.github || '',
+          website: doc.personalInfo?.personalWebsite || parsedData.website || '',
+          sections,
+          _parser: aligned.tier || 'central-ai',
+          _localFormat: aligned.tier === 'localNLP' || aligned.tier === 'local-worker'
+        };
       }
-      throw new Error(err.message || 'AI not configured or parsing failed. Paste a free Gemini API key.');
+    } catch (err) {
+      console.warn('Central AI format failed, falling back to smart local parser:', err);
     }
+
+    // Local fallback: structure the resume with on-device smart parser
+    try {
+      const { parseResumeLocal } = await import('./local-resume-parser.js');
+      const { normalizePipeline } = await import('../utils/import-pipeline.js');
+      const local = parseResumeLocal(resumeText, { filename: parsedData.sourceFile });
+      const { parsed: localOut, report } = normalizePipeline(local);
+      if (localOut && Array.isArray(localOut.sections) && localOut.sections.length > 0) {
+        return {
+          name: localOut.name || parsedData.name || '',
+          title: localOut.title || parsedData.professionalTitle || '',
+          email: localOut.email || parsedData.email || '',
+          phone: localOut.phone || parsedData.phone || '',
+          location: localOut.location || parsedData.location || '',
+          linkedin: localOut.linkedin || parsedData.linkedin || '',
+          github: localOut.github || parsedData.github || '',
+          website: localOut.website || parsedData.website || '',
+          sections: localOut.sections,
+          _parser: 'local-smart-v1',
+          _localFormat: true,
+          _pipelineReport: report
+        };
+      }
+    } catch (localErr) {
+      console.warn('Local format fallback failed:', localErr);
+    }
+
+    return parsedData;
   }
 
   _rebuildSectionsTab(secPanel, parsedData) {
@@ -1511,13 +1553,26 @@ export class ImportManager {
       secCard.appendChild(secHeader);
 
       const contentList = createElement('div', '', { class: 'import-section-content' });
-      (sec.content || []).slice(0, 5).forEach(line => {
+      let lines = [];
+      if (Array.isArray(sec.content)) {
+        lines = sec.content.map(c => typeof c === 'string' ? c : (c?.text || JSON.stringify(c)));
+      } else if (typeof sec.content === 'string') {
+        lines = sec.content.split('\n').filter(Boolean);
+      } else if (Array.isArray(sec.items)) {
+        lines = sec.items.map(item => {
+          if (typeof item === 'string') return item;
+          const header = [item.title || item.name || item.degree, item.company || item.institution].filter(Boolean).join(' at ');
+          return header || item.description || JSON.stringify(item);
+        });
+      }
+
+      lines.slice(0, 5).forEach(line => {
         const lineEl = createElement('div', '', { class: 'import-content-line' });
         lineEl.textContent = line.length > 120 ? line.substring(0, 120) + '...' : line;
         contentList.appendChild(lineEl);
       });
-      if (sec.content?.length > 5) {
-        contentList.appendChild(createElement('div', `+ ${sec.content.length - 5} more items`, { class: 'import-content-more' }));
+      if (lines.length > 5) {
+        contentList.appendChild(createElement('div', `+ ${lines.length - 5} more items`, { class: 'import-content-more' }));
       }
       secCard.appendChild(contentList);
       secPanel.appendChild(secCard);
@@ -2146,9 +2201,30 @@ export class ImportManager {
     // Add sections — replace defaults with parsed content
     if (parsed.sections && parsed.sections.length > 0) {
       doc.sections = parsed.sections.map((section, index) => {
-        const sectionId = generateUUID();
-        const mappedType = section.type || 'custom';
-        const contentLines = Array.isArray(section.content) ? section.content : [];
+        const sectionId = section.id || generateUUID();
+        const mappedType = section.sectionType || section.type || 'custom';
+
+        // If items are already rich objects from NLPExtractor or prior parser, preserve them directly
+        if (section.items && Array.isArray(section.items) && section.items.length > 0 && typeof section.items[0] === 'object') {
+          return {
+            id: sectionId,
+            sectionType: mappedType,
+            type: section.type || (['summary', 'objective'].includes(mappedType) ? 'text' : 'list'),
+            title: section.title || (mappedType.charAt(0).toUpperCase() + mappedType.slice(1)),
+            content: section.content || '',
+            items: section.items.map((it, idx) => ({
+              ...it,
+              id: it.id || generateUUID(),
+              included: it.included !== false,
+              order: it.order ?? idx
+            })),
+            visible: section.visible !== false,
+            column: section.column || 'main',
+            order: section.order ?? index
+          };
+        }
+
+        const contentLines = Array.isArray(section.content) ? section.content : (typeof section.content === 'string' ? section.content.split('\n').filter(Boolean) : []);
 
         // Text-type sections (summary, objective) use content field
         const isTextSection = ['summary', 'objective'].includes(mappedType);
@@ -2291,23 +2367,248 @@ export class ImportManager {
         } else if (mappedType === 'certifications') {
           contentLines.forEach((line, li) => {
             const cleaned = stripBullet(line);
-            const parts = cleaned.split(/\s*[-–—]\s*/);
+            const parts = cleaned.split(/\s*[-–—|]\s*/);
             const certName = (parts[0] || cleaned).trim();
             const org = (parts[1] || '').trim();
-            const yearMatch = cleaned.match(/\b((?:19|20)\d{2})\b/);
-            items.push({ id: generateUUID(), name: certName, issuingOrganization: org, issuer: org, organization: org, date: yearMatch ? yearMatch[1] : '', year: yearMatch ? yearMatch[1] : '', description: parts.length > 2 ? parts.slice(2).join(' - ').trim() : '', included: true, order: li });
+            const yearMatch = cleaned.match(/\b((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+)?\b((?:19|20)\d{2})\b/i);
+            const certDate = yearMatch ? yearMatch[0] : '';
+            items.push({
+              id: generateUUID(),
+              name: certName,
+              issuingOrganization: org,
+              issuer: org,
+              organization: org,
+              date: certDate,
+              year: certDate,
+              issueDate: certDate,
+              credentialId: '',
+              credentialUrl: '',
+              description: parts.length > 2 ? parts.slice(2).join(' - ').trim() : '',
+              included: true,
+              order: li
+            });
           });
         } else if (mappedType === 'projects') {
           let currentProj = null;
           contentLines.forEach(line => {
             if (isBullet(line)) {
-              if (currentProj) currentProj.summary = ((currentProj.summary || '') + '\n' + stripBullet(line)).trim();
-            } else if (line.length > 3) {
+              const bulletText = stripBullet(line);
+              if (currentProj) {
+                if (/^(?:technologies|tech\s+stack|tools|stack):\s*/i.test(bulletText)) {
+                  const techStr = bulletText.replace(/^(?:technologies|tech\s+stack|tools|stack):\s*/i, '').trim();
+                  const techs = techStr.split(/[,;|]+/).map(t => t.trim()).filter(Boolean);
+                  currentProj.technologies = Array.from(new Set([...(currentProj.technologies || []), ...techs]));
+                } else {
+                  currentProj.summary = ((currentProj.summary || '') + '\n' + bulletText).trim();
+                  currentProj.description = ((currentProj.description || '') + '\n' + bulletText).trim();
+                  if (!currentProj.highlights) currentProj.highlights = [];
+                  currentProj.highlights.push(bulletText);
+                }
+              }
+            } else if (line.length > 2) {
               if (currentProj) items.push(currentProj);
-              currentProj = { id: generateUUID(), projectName: line, name: line, title: line, text: line, summary: '', description: '', technologies: [], included: true, order: items.length };
+              let titleLine = line;
+              let url = '';
+              const urlMatch = titleLine.match(/https?:\/\/[^\s)]+|github\.com\/[^\s)]+/i);
+              if (urlMatch) {
+                url = urlMatch[0];
+                titleLine = titleLine.replace(urlMatch[0], '').trim().replace(/[|–—\-,()\s]+$/, '').trim();
+              }
+              const techs = [];
+              const parenMatch = titleLine.match(/\(([^)]+)\)/);
+              if (parenMatch && parenMatch[1].includes(',')) {
+                const parenTechs = parenMatch[1].split(/[,;|]+/).map(t => t.trim()).filter(Boolean);
+                if (parenTechs.length > 1) {
+                  techs.push(...parenTechs);
+                  titleLine = titleLine.replace(parenMatch[0], '').trim();
+                }
+              }
+              const cleanTitle = titleLine.replace(/^[|–—\-,()\s]+|[|–—\-,()\s]+$/g, '').trim();
+              currentProj = {
+                id: generateUUID(),
+                projectName: cleanTitle || line,
+                name: cleanTitle || line,
+                title: cleanTitle || line,
+                text: cleanTitle || line,
+                role: '',
+                summary: '',
+                description: '',
+                technologies: techs,
+                url: url || '',
+                repositoryUrl: /github\.com/i.test(url) ? url : '',
+                demoUrl: !/github\.com/i.test(url) && url ? url : '',
+                highlights: [],
+                included: true,
+                order: items.length
+              };
             }
           });
           if (currentProj) items.push(currentProj);
+        } else if (mappedType === 'awards') {
+          contentLines.forEach((line, li) => {
+            const cleaned = stripBullet(line);
+            const yearMatch = cleaned.match(/\b((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+)?\b((?:19|20)\d{2})\b/i);
+            const date = yearMatch ? yearMatch[0] : '';
+            const parts = cleaned.replace(yearMatch ? yearMatch[0] : '', '').split(/\s*[-–—|:]\s*/).map(p => p.trim()).filter(Boolean);
+            const title = parts[0] || cleaned;
+            const issuer = parts[1] || '';
+            const desc = parts.length > 2 ? parts.slice(2).join(' - ') : '';
+            items.push({
+              id: generateUUID(),
+              title,
+              name: title,
+              awardTitle: title,
+              issuer,
+              organization: issuer,
+              date,
+              year: date,
+              description: desc,
+              included: true,
+              order: li
+            });
+          });
+        } else if (mappedType === 'volunteer') {
+          let currentVol = null;
+          contentLines.forEach(line => {
+            if (isBullet(line)) {
+              const bulletText = stripBullet(line);
+              if (currentVol) {
+                currentVol.description = ((currentVol.description || '') + '\n' + bulletText).trim();
+                if (!currentVol.highlights) currentVol.highlights = [];
+                currentVol.highlights.push(bulletText);
+              }
+            } else if (line.length > 2) {
+              if (currentVol) items.push(currentVol);
+              const parts = line.split(/\s*[-–—|,]\s*/).map(p => p.trim()).filter(Boolean);
+              const yearMatch = line.match(/\b((?:19|20)\d{2})\b/);
+              const year = yearMatch ? yearMatch[1] : '';
+              currentVol = {
+                id: generateUUID(),
+                role: parts[0] || line,
+                title: parts[0] || line,
+                organization: parts[1] || '',
+                cause: parts[1] || '',
+                startDate: year,
+                endDate: /present|current/i.test(line) ? 'Present' : (parts.length > 2 && /\d{4}/.test(parts[2]) ? parts[2] : ''),
+                startMonth: '',
+                startYear: year,
+                endMonth: '',
+                endYear: /present|current/i.test(line) ? '' : (parts.length > 2 && /\d{4}/.test(parts[2]) ? parts[2] : ''),
+                current: /present|current/i.test(line),
+                currentlyWorking: /present|current/i.test(line),
+                location: '',
+                description: '',
+                highlights: [],
+                included: true,
+                order: items.length
+              };
+            }
+          });
+          if (currentVol) items.push(currentVol);
+        } else if (mappedType === 'publications') {
+          contentLines.forEach((line, li) => {
+            const cleaned = stripBullet(line);
+            const yearMatch = cleaned.match(/\b((?:19|20)\d{2})\b/);
+            const year = yearMatch ? yearMatch[1] : '';
+            const urlMatch = cleaned.match(/(?:https?:\/\/[^\s)]+|doi:[^\s)]+)/i);
+            const url = urlMatch ? urlMatch[0] : '';
+            const parts = cleaned.replace(url || '', '').split(/\s*[-–—|:]\s*/).map(p => p.trim()).filter(Boolean);
+            const title = parts[0] || cleaned;
+            const publisher = parts[1] || '';
+            const desc = parts.length > 2 ? parts.slice(2).join(' - ') : '';
+            items.push({
+              id: generateUUID(),
+              title,
+              name: title,
+              publisher,
+              journal: publisher,
+              date: year,
+              year,
+              url,
+              authors: '',
+              description: desc,
+              included: true,
+              order: li
+            });
+          });
+        } else if (mappedType === 'languages') {
+          contentLines.forEach((line, li) => {
+            const cleaned = stripBullet(line);
+            const entries = cleaned.includes(',') && !cleaned.includes(':') ? cleaned.split(/,\s*/) : [cleaned];
+            entries.forEach(entry => {
+              const c = entry.trim();
+              if (!c) return;
+              const match = c.match(/^([a-zA-Z\s]+)(?:[:\-–—]|\s*\(([^)]+)\)|\s*-\s*([a-zA-Z\s/]+))$/i);
+              const langName = match ? (match[1] || '').trim() : (c.split(/[:\-–—(]/)[0] || c).trim();
+              const prof = match ? (match[2] || match[3] || 'Native / Fluent').trim() : (c.split(/[:\-–—(]/)[1] || 'Native / Fluent').replace(/[)]/g, '').trim();
+              if (langName) {
+                items.push({
+                  id: generateUUID(),
+                  language: langName,
+                  name: langName,
+                  proficiency: prof || 'Native / Fluent',
+                  level: prof || 'Native / Fluent',
+                  included: true,
+                  order: items.length
+                });
+              }
+            });
+          });
+        } else if (mappedType === 'interests') {
+          contentLines.forEach(line => {
+            const cleaned = stripBullet(line);
+            const entries = cleaned.includes(',') ? cleaned.split(/,\s*/) : [cleaned];
+            entries.forEach(entry => {
+              const c = entry.trim();
+              if (c) {
+                items.push({
+                  id: generateUUID(),
+                  name: c,
+                  text: c,
+                  description: '',
+                  included: true,
+                  order: items.length
+                });
+              }
+            });
+          });
+        } else if (mappedType === 'references') {
+          contentLines.forEach(line => {
+            const cleaned = stripBullet(line);
+            if (!cleaned) return;
+            if (/available\s+upon\s+request/i.test(cleaned)) {
+              items.push({
+                id: generateUUID(),
+                name: 'References',
+                title: '',
+                company: '',
+                email: '',
+                phone: '',
+                reference: cleaned,
+                description: cleaned,
+                included: true,
+                order: items.length
+              });
+            } else {
+              const emailMatch = cleaned.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/);
+              const email = emailMatch ? emailMatch[0] : '';
+              const phoneMatch = cleaned.match(/(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
+              const phone = phoneMatch ? phoneMatch[0] : '';
+              const parts = cleaned.replace(email, '').replace(phone, '').split(/\s*[-–—|,]\s*/).map(p => p.trim()).filter(Boolean);
+              items.push({
+                id: generateUUID(),
+                name: parts[0] || cleaned,
+                title: parts[1] || '',
+                company: parts[2] || '',
+                email,
+                phone,
+                reference: cleaned,
+                description: '',
+                included: true,
+                order: items.length
+              });
+            }
+          });
         } else {
           items = contentLines.map((line, li) => {
             const cleaned = stripBullet(line);
@@ -2935,13 +3236,16 @@ export class ImportManager {
     if (!text || text.length < 20) return null;
 
     let parsed = null;
+    let analyzingToast = null;
     try {
       const { AiFormatter } = await import('./ai-formatter.js');
-      if (window.CC?.toast) window.CC.toast.show('Analyzing LinkedIn profile with AI...', 'info');
+      if (window.CC?.toast) analyzingToast = window.CC.toast.show('Analyzing LinkedIn profile with AI...', 'info');
       const li = await new AiFormatter().parseLinkedIn(text);
+      if (window.CC?.toast && analyzingToast !== null) window.CC.toast.dismiss(analyzingToast);
       parsed = this.adaptLinkedInProfile(li || {});
     } catch (err) {
       console.warn('LinkedIn AI parse failed, using local parser:', err);
+      if (window.CC?.toast && analyzingToast !== null) window.CC.toast.dismiss(analyzingToast);
       try {
         const { parseResumeLocal } = await import('./local-resume-parser.js');
         parsed = parseResumeLocal(text);
@@ -2969,25 +3273,52 @@ export class ImportManager {
       cleanText = cleaned.text;
       cleanStats = cleaned.stats;
     } catch { /* use raw text */ }
-    // 1) AI first: on-device (LocalAI/AdvancedLocalAI) when enabled,
-    //    otherwise the server proxy, otherwise the user's own Gemini key.
+
+    // 1) Central AI Engine: Tier 1 (Deterministic Heuristic NLP) / Tier 2 (Worker) / Tier 3 (LLM)
+    let analyzingToast = null;
     try {
-      const { AiFormatter } = await import('./ai-formatter.js');
-      const ai = new AiFormatter();
-      if (window.CC?.toast) window.CC.toast.show('Analyzing document with AI...', 'info');
-      const parsed = await ai.parseResume(cleanText);
-      if (parsed && typeof parsed === 'object') {
-        // Ensure sections exist
-        if (!parsed.sections) parsed.sections = [];
-        parsed._parser = parsed._parser || 'ai';
+      const { centralAI } = await import('../core/central-ai.js');
+      if (window.CC?.toast) analyzingToast = window.CC.toast.show('Intelligently parsing and aligning document...', 'info');
+      const result = await centralAI.parseAndAlignResume(cleanText, { filename });
+      if (window.CC?.toast && analyzingToast !== null) window.CC.toast.dismiss(analyzingToast);
+
+      if (result && result.document) {
+        const doc = result.document;
+        // Construct standard review payload
+        const parsed = {
+          name: doc.personalInfo?.fullName || '',
+          email: doc.personalInfo?.email || '',
+          phone: doc.personalInfo?.phone || '',
+          professionalTitle: doc.personalInfo?.professionalTitle || '',
+          location: [doc.personalInfo?.city, doc.personalInfo?.state, doc.personalInfo?.country].filter(Boolean).join(', '),
+          linkedin: doc.personalInfo?.linkedinUrl || '',
+          github: doc.personalInfo?.githubUrl || '',
+          website: doc.personalInfo?.personalWebsite || '',
+          sections: doc.sections || [],
+          _parser: result.tier || 'central-ai',
+          _confidence: result.confidence || 0.9,
+          _rawText: cleanText,
+          sourceFile: filename
+        };
+
+        if (cleanStats) {
+          parsed._pipelineReport = {
+            artifactsDropped: cleanStats.artifactsDropped || 0,
+            hyphensRepaired: cleanStats.hyphensRepaired || 0,
+            linesJoined: cleanStats.linesJoined || 0,
+            sectionsMapped: doc.sections?.length || 0,
+            typosFixed: 0,
+            skillsGrouped: 0
+          };
+        }
         return parsed;
       }
     } catch (err) {
-      console.warn('AI parsing failed, falling back to local smart parsing:', err);
+      console.warn('Central AI parsing error, trying local pipeline:', err);
+      if (window.CC?.toast && analyzingToast !== null) window.CC.toast.dismiss(analyzingToast);
     }
-    // 2) Offline smart parser + normalization pipeline (canonical sections,
-    //    entry splitting, skills grouping, bounded correction).
-    //    The upload filename hints the professional title ("Name - Title Resume.pdf").
+
+    // 2) Offline smart parser + normalization pipeline fallback
     try {
       const { parseResumeLocal } = await import('./local-resume-parser.js');
       const { normalizePipeline } = await import('../utils/import-pipeline.js');
@@ -3000,7 +3331,7 @@ export class ImportManager {
           report.hyphensRepaired = cleanStats.hyphensRepaired;
           report.linesJoined = cleanStats.linesJoined;
         }
-        if (window.CC?.toast) window.CC.toast.show('AI unavailable — parsed locally on your device.', 'info');
+        if (window.CC?.toast) window.CC.toast.show('Parsed locally on your device.', 'info');
         return normalized;
       }
     } catch (err) {
@@ -3104,6 +3435,12 @@ export class ImportManager {
   clearImportDraft() {
     try { localStorage.removeItem(DRAFT_STORAGE_KEY); } catch (e) { /* ignore */ }
     if (this._draftTimer) { clearInterval(this._draftTimer); this._draftTimer = null; }
+  }
+
+  destroy() {
+    if (this._draftTimer) { clearInterval(this._draftTimer); this._draftTimer = null; }
+    this.currentFile = null;
+    this.parsedData = null;
   }
 
   async renderImportView(db) {

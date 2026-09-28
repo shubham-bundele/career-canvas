@@ -72,11 +72,11 @@ Missing: automated E2E (only manual `.html`), perf/memory profiling harness, tox
 ## 7. AI integration recommendation (hybrid: YES — good choice)
 Hybrid (local default + opt-in cloud) is the right call for a privacy-first resume app:
 PII stays on-device; cloud only on consent for modes local can't do. Details + exact
-download/quant/CLI/browser/caching/sanity commands: `runbook/local-ai-runbook.md`
+download/quant/CLI/browser/caching/sanity commands: `docs/runbook/local-ai-runbook.md`
 and `scripts/install-models.{ps1,sh}`. Large-download notice: WebLLM 4.5 GB (~10–30 min,
 8 GB RAM/4 GB VRAM); GGUF CLI 2.3 GB (~5–15 min, 8 GB RAM). No download was performed
 in this audit (browser-cache only); nothing >200 MB fetched.
 
 ## 8. Release candidate
 RC `v1.1.0-rc1` = this branch HEAD. Rollback: `git revert` the `agent:` commits or redeploy
-prior Vercel deployment; `localStorage` + IndexedDB `cc-local-ai` clear per runbook. See CHANGELOG.
+prior Vercel deployment; `localStorage` + IndexedDB `cc-local-ai` clear per docs/runbook. See CHANGELOG.

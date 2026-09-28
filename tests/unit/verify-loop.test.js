@@ -50,4 +50,19 @@ describe('redaction verify loop', () => {
     };
     expect(ps.performScan(redacted)).toEqual([]);
   });
+  it('detects secret tokens and API keys in document text', () => {
+    const ps = new PrivacyStudio(null, null);
+    const doc = {
+      personalInfo: { fullName: 'Jane Developer' },
+      sections: [{
+        sectionType: 'experience',
+        items: [{
+          company: 'Acme',
+          achievements: [{ text: 'Used token ghp_123456789012345678901234567890123456 for automation' }]
+        }]
+      }]
+    };
+    const findings = ps.performScan(doc);
+    expect(findings.some((f) => f.type === 'apiKey' && f.matchedText.includes('ghp_'))).toBe(true);
+  });
 });

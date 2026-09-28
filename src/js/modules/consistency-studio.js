@@ -64,6 +64,10 @@ const PRESENT_ED_EXCEPTIONS = new Set([
 const IRREGULAR_PAST = {
   lead: 'led', build: 'built', oversee: 'oversaw', understand: 'understood',
   write: 'wrote', speak: 'spoke', drive: 'drove', grow: 'grew',
+  run: 'ran', teach: 'taught', bring: 'brought', make: 'made',
+  take: 'took', do: 'did', set: 'set', meet: 'met', win: 'won',
+  send: 'sent', choose: 'chose', find: 'found', spend: 'spent',
+  hold: 'held', keep: 'kept', give: 'gave', begin: 'began'
 };
 
 function firstVerbWord(text) {
@@ -373,8 +377,11 @@ export class ConsistencyStudio {
       empty.appendChild(emptyMsg);
       const createBtn = createElement('button', '+ Create Resume', { class: 'btn btn-primary btn-sm' });
       this.addListener(createBtn, 'click', () => {
-        if (window.CC && window.CC.router) window.CC.router.navigate('/editor');
-        else window.location.hash = '#/editor';
+        // Open the creation wizard via the global document:create flow
+        // (bare '#/editor' matches no route and would 404 to the dashboard).
+        if (window.CC && window.CC.events) window.CC.events.emit('document:create', { type: 'resume' });
+        else if (window.CC && window.CC.router) window.CC.router.navigate('/dashboard');
+        else window.location.hash = '#/dashboard';
       });
       empty.appendChild(createBtn);
       listContainer.appendChild(empty);

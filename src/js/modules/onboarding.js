@@ -4,7 +4,7 @@
  */
 
 import eventBus, { EVENTS } from '../core/events.js';
-import { createElement } from '../utils/sanitize.js';
+import { createElement, attachTiltEffect } from '../utils/sanitize.js';
 import { createEmptyDocument, DOCUMENT_TYPES } from '../core/schema.js';
 import { generateUUID } from '../utils/id.js';
 
@@ -157,7 +157,6 @@ export class OnboardingWizard {
     this.onSkip = null;
     this._isAdvancing = false;
     this._advanceTimer = null;
-    this._continueOnSelection = this._loadContinueOnSelection();
     this._showingAiJDStep = false;
   }
 
@@ -191,10 +190,6 @@ export class OnboardingWizard {
     // Create progress bar
     const progressBar = this.renderProgressBar();
     modal.appendChild(progressBar);
-
-    // Create continue-on-selection toggle
-    const toggleRow = this.renderContinueToggle();
-    modal.appendChild(toggleRow);
 
     // Create step content
     const stepContent = createElement('div', '', { class: 'onboarding-step-content' });
@@ -232,6 +227,33 @@ export class OnboardingWizard {
    */
   renderHeader() {
     const header = createElement('div', '', { class: 'onboarding-header' });
+
+    // Top action bar with Back and Skip buttons
+    const topBar = createElement('div', '', { class: 'onboarding-top-bar' });
+
+    const topBackBtn = createElement('button', '← Back', {
+      class: 'onboarding-top-btn onboarding-top-back',
+      id: 'onboarding-top-back',
+      type: 'button',
+      'aria-label': 'Go back to previous step'
+    });
+    const backHandler = () => this.goBack();
+    topBackBtn.addEventListener('click', backHandler);
+    this.listeners.push({ element: topBackBtn, event: 'click', handler: backHandler });
+    topBar.appendChild(topBackBtn);
+
+    const topSkipBtn = createElement('button', 'Skip Setup ✕', {
+      class: 'onboarding-top-btn onboarding-top-skip',
+      id: 'onboarding-top-skip',
+      type: 'button',
+      'aria-label': 'Skip setup wizard'
+    });
+    const skipHandler = () => this.skip();
+    topSkipBtn.addEventListener('click', skipHandler);
+    this.listeners.push({ element: topSkipBtn, event: 'click', handler: skipHandler });
+    topBar.appendChild(topSkipBtn);
+
+    header.appendChild(topBar);
 
     const logo = createElement('div', '🎨', { class: 'onboarding-logo' });
     header.appendChild(logo);
@@ -279,72 +301,6 @@ export class OnboardingWizard {
       const progress = ((this.currentStep + 1) / this.getSteps().length) * 100;
       progressFill.style.width = `${progress}%`;
       progressText.textContent = `Step ${this.currentStep + 1} of ${this.getSteps().length}`;
-    }
-  }
-
-  /**
-   * Renders the continue-on-selection toggle
-   * @returns {HTMLElement} Toggle row element
-   */
-  renderContinueToggle() {
-    const row = createElement('div', '', { class: 'onboarding-continue-toggle-row' });
-    row.id = 'onboarding-continue-toggle-row';
-
-    const labelGroup = createElement('div', '', { class: 'onboarding-continue-label-group' });
-    const label = createElement('label', 'Continue on selection', {
-      class: 'onboarding-continue-label',
-      for: 'onboarding-continue-toggle'
-    });
-    labelGroup.appendChild(label);
-    const hint = createElement('span', 'When enabled, selecting an option automatically moves to the next step.', {
-      class: 'onboarding-continue-hint',
-      id: 'onboarding-continue-hint'
-    });
-    labelGroup.appendChild(hint);
-    row.appendChild(labelGroup);
-
-    const toggle = createElement('button', '', {
-      class: 'onboarding-toggle',
-      id: 'onboarding-continue-toggle',
-      type: 'button',
-      role: 'switch',
-      'aria-checked': String(this._continueOnSelection),
-      'aria-describedby': 'onboarding-continue-hint'
-    });
-    const knob = createElement('span', '', { class: 'onboarding-toggle-knob', 'aria-hidden': 'true' });
-    toggle.appendChild(knob);
-
-    if (this._continueOnSelection) {
-      toggle.classList.add('onboarding-toggle--on');
-    }
-
-    const toggleHandler = () => {
-      this._continueOnSelection = !this._continueOnSelection;
-      toggle.setAttribute('aria-checked', String(this._continueOnSelection));
-      toggle.classList.toggle('onboarding-toggle--on', this._continueOnSelection);
-      this._saveContinueOnSelection();
-    };
-    toggle.addEventListener('click', toggleHandler);
-    this.listeners.push({ element: toggle, event: 'click', handler: toggleHandler });
-
-    row.appendChild(toggle);
-    return row;
-  }
-
-  _loadContinueOnSelection() {
-    try {
-      const val = localStorage.getItem('cc_continueOnSelection');
-      return val === 'true';
-    } catch (e) {
-      return false;
-    }
-  }
-
-  _saveContinueOnSelection() {
-    try {
-      localStorage.setItem('cc_continueOnSelection', String(this._continueOnSelection));
-    } catch (e) {
-      // localStorage unavailable
     }
   }
 
@@ -448,30 +404,14 @@ export class OnboardingWizard {
     };
     card.addEventListener('keydown', keyHandler);
 
-    // 3D tilt + spotlight tracking on mousemove
-    const moveHandler = (e) => {
-      const rect = card.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-      const centerX = rect.width / 2;
-      const centerY = rect.height / 2;
-      const rotateX = ((y - centerY) / centerY) * -8;
-      const rotateY = ((x - centerX) / centerX) * 8;
-      card.style.transform = `perspective(600px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) translateY(-6px) scale(1.02)`;
-      card.style.setProperty('--spot-x', `${x}px`);
-      card.style.setProperty('--spot-y', `${y}px`);
-    };
-    const leaveHandler = () => {
-      card.style.transform = '';
-    };
-    card.addEventListener('mousemove', moveHandler);
-    card.addEventListener('mouseleave', leaveHandler);
+    // Settled 3D tilt + spotlight tracking (rAF-throttled, reduced-motion aware)
+    const tilt = attachTiltEffect(card, {});
 
     // Store listeners for cleanup
     this.listeners.push({ element: card, event: 'click', handler: clickHandler });
     this.listeners.push({ element: card, event: 'keydown', handler: keyHandler });
-    this.listeners.push({ element: card, event: 'mousemove', handler: moveHandler });
-    this.listeners.push({ element: card, event: 'mouseleave', handler: leaveHandler });
+    this.listeners.push({ element: card, event: 'mousemove', handler: tilt.onMove });
+    this.listeners.push({ element: card, event: 'mouseleave', handler: tilt.onLeave });
 
     return card;
   }
@@ -511,8 +451,8 @@ export class OnboardingWizard {
     // Update navigation
     this.updateNavigation();
 
-    // Auto-advance if toggle is on
-    if (this._continueOnSelection && this.selections[stepId]) {
+    // Auto-advance on selection ALWAYS (on-tap navigation)
+    if (this.selections[stepId]) {
       this._scheduleAdvance();
     }
   }
@@ -536,43 +476,32 @@ export class OnboardingWizard {
   }
 
   /**
-   * Renders navigation buttons
+   * Renders navigation buttons (Back + Skip only — tile tap advances).
    * @returns {HTMLElement} Navigation element
    */
   renderNavigation() {
     const navigation = createElement('div', '', { class: 'onboarding-navigation' });
     navigation.id = 'onboarding-navigation';
 
-    const backButton = createElement('button', 'Back', {
+    const backButton = createElement('button', '← Back', {
       class: 'onboarding-btn onboarding-btn-back',
-      id: 'onboarding-back-btn'
+      id: 'onboarding-back-btn',
+      type: 'button'
     });
     const backHandler = () => this.goBack();
     backButton.addEventListener('click', backHandler);
     this.listeners.push({ element: backButton, event: 'click', handler: backHandler });
     navigation.appendChild(backButton);
 
-    const buttonGroup = createElement('div', '', { class: 'onboarding-btn-group' });
-
     const skipButton = createElement('button', 'Skip', {
       class: 'onboarding-btn onboarding-btn-skip',
-      id: 'onboarding-skip-btn'
+      id: 'onboarding-skip-btn',
+      type: 'button'
     });
     const skipHandler = () => this.skip();
     skipButton.addEventListener('click', skipHandler);
     this.listeners.push({ element: skipButton, event: 'click', handler: skipHandler });
-    buttonGroup.appendChild(skipButton);
-
-    const nextButton = createElement('button', 'Next', {
-      class: 'onboarding-btn onboarding-btn-next',
-      id: 'onboarding-next-btn'
-    });
-    const nextHandler = () => this.goNext();
-    nextButton.addEventListener('click', nextHandler);
-    this.listeners.push({ element: nextButton, event: 'click', handler: nextHandler });
-    buttonGroup.appendChild(nextButton);
-
-    navigation.appendChild(buttonGroup);
+    navigation.appendChild(skipButton);
 
     return navigation;
   }
@@ -582,23 +511,29 @@ export class OnboardingWizard {
    */
   updateNavigation() {
     const backButton = this.container.querySelector('#onboarding-back-btn');
-    const nextButton = this.container.querySelector('#onboarding-next-btn');
+    const topBackButton = this.container.querySelector('#onboarding-top-back');
 
-    if (!backButton || !nextButton) return;
+    const isFirstStep = this.currentStep === 0 && !this._showingAiJDStep;
 
-    // Back button always enabled — on step 0 it closes the wizard
-    backButton.disabled = false;
+    if (backButton) {
+      if (isFirstStep) {
+        backButton.style.visibility = 'hidden';
+        backButton.disabled = true;
+      } else {
+        backButton.style.visibility = 'visible';
+        backButton.disabled = false;
+        backButton.textContent = '← Back';
+      }
+    }
 
-    // Next button disabled if no selection made
-    const currentStepId = this.getSteps()[this.currentStep].id;
-    const hasSelection = this.selections[currentStepId] !== undefined;
-    nextButton.disabled = !hasSelection;
-
-    // Change text on last step
-    if (this.currentStep === this.getSteps().length - 1) {
-      nextButton.textContent = 'Get Started';
-    } else {
-      nextButton.textContent = 'Next';
+    if (topBackButton) {
+      if (isFirstStep) {
+        topBackButton.style.visibility = 'hidden';
+        topBackButton.disabled = true;
+      } else {
+        topBackButton.style.visibility = 'visible';
+        topBackButton.disabled = false;
+      }
     }
   }
 
@@ -606,12 +541,11 @@ export class OnboardingWizard {
    * Goes to previous step
    */
   goBack() {
+    this._disarmSkip();
     // If we are on the AI JD step, go back to the document type step
     if (this._showingAiJDStep) {
       this._showingAiJDStep = false;
       // Restore hidden navigation buttons
-      const nextButton = this.container.querySelector('#onboarding-next-btn');
-      if (nextButton) nextButton.style.display = '';
       const skipButton = this.container.querySelector('#onboarding-skip-btn');
       if (skipButton) skipButton.style.display = '';
       this.currentStep = 0;
@@ -634,6 +568,7 @@ export class OnboardingWizard {
    * Goes to next step or completes wizard
    */
   goNext() {
+    this._disarmSkip();
     const currentStepId = this.getSteps()[this.currentStep].id;
 
     // Check if option is selected
@@ -715,9 +650,7 @@ export class OnboardingWizard {
 
     // Update navigation: back returns to document type step
     const backButton = this.container.querySelector('#onboarding-back-btn');
-    if (backButton) backButton.disabled = false;
-    const nextButton = this.container.querySelector('#onboarding-next-btn');
-    if (nextButton) nextButton.style.display = 'none';
+    if (backButton) { backButton.disabled = false; backButton.style.visibility = 'visible'; }
     const skipButton = this.container.querySelector('#onboarding-skip-btn');
     if (skipButton) skipButton.style.display = 'none';
 
@@ -844,17 +777,33 @@ export class OnboardingWizard {
     }
   }
 
+  /** Resets the two-step Skip confirm (called on any other interaction). */
+  _disarmSkip() {
+    if (this._skipDisarm) { clearTimeout(this._skipDisarm); this._skipDisarm = null; }
+    if (!this.container) return;
+    const b = this.container.querySelector('#onboarding-skip-btn');
+    if (b && b.dataset.armed === 'true') {
+      b.dataset.armed = '';
+      b.textContent = 'Skip';
+      b.classList.remove('onboarding-btn-danger');
+    }
+  }
+
   /**
-   * Skips the wizard
+   * Skips the wizard and marks onboarding complete.
    */
   skip() {
-    if (confirm('Are you sure you want to skip the setup? You can always start a new document from the dashboard.')) {
-      this.markOnboardingComplete();
-      if (this.onSkip) {
-        this.onSkip();
-      }
-      this.destroy();
+    if (!this.container) return;
+    if (this._skipDisarm) { clearTimeout(this._skipDisarm); this._skipDisarm = null; }
+    if (this._advanceTimer) { clearTimeout(this._advanceTimer); this._advanceTimer = null; }
+    this.markOnboardingComplete();
+    if (this.onSkip) {
+      this.onSkip();
+    } else if (this.onComplete) {
+      const doc = createEmptyDocument(DOCUMENT_TYPES.RESUME, 'My Resume');
+      this.onComplete(doc, this.selections);
     }
+    this.destroy();
   }
 
   /**
@@ -1414,22 +1363,8 @@ export class OnboardingWizard {
       card.appendChild(createElement('div', feature.stat, { class: 'showcase-card-stat' }));
     }
 
-    // 3D tilt + spotlight on hover
-    card.addEventListener('mousemove', (e) => {
-      const rect = card.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-      const cx = rect.width / 2;
-      const cy = rect.height / 2;
-      const rx = ((y - cy) / cy) * -10;
-      const ry = ((x - cx) / cx) * 10;
-      card.style.transform = `perspective(500px) rotateX(${rx}deg) rotateY(${ry}deg) scale(1.05)`;
-      card.style.setProperty('--spot-x', `${x}px`);
-      card.style.setProperty('--spot-y', `${y}px`);
-    });
-    card.addEventListener('mouseleave', () => {
-      card.style.transform = '';
-    });
+    // Settled 3D tilt + spotlight on hover (rAF-throttled, reduced-motion aware)
+    attachTiltEffect(card, { max: 10, perspective: 500, lift: 0, scale: 1.05 });
 
     return card;
   }
@@ -1486,6 +1421,10 @@ export class OnboardingWizard {
     if (this._advanceTimer) {
       clearTimeout(this._advanceTimer);
       this._advanceTimer = null;
+    }
+    if (this._skipDisarm) {
+      clearTimeout(this._skipDisarm);
+      this._skipDisarm = null;
     }
     this._isAdvancing = false;
     this._destroyShowcase();
